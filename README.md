@@ -55,26 +55,30 @@
 conda create -n stock python=3.12 -y
 conda activate stock
 
-# 进入你的项目目录
-cd /path/to/your/project
-
 # 安装依赖
 pip install -r requirements.txt
 ```
 
-> 关键依赖：`pandas`, `tqdm`, `tushare`, `numpy`, `scipy`。
+> **自动激活**：项目中包含 `.conda_env` 配置，配合 Zsh 钩子可以实现进入目录自动激活 `stock` 环境。
+> 关键依赖：`pandas`, `tqdm`, `tushare`, `numpy`, `scipy`, `python-dotenv`。
 
 ### 准备 Tushare Token
 
-1. 在系统环境中写入 `TUSHARE_TOKEN`：
+为了安全且方便地管理 Token，项目支持使用 `.env` 文件：
 
-```bash
-# Windows (PowerShell)
-setx TUSHARE_TOKEN "你的token"
+1. 复制模板文件：
 
-# macOS / Linux (bash)
-export TUSHARE_TOKEN=你的token
-```
+   ```bash
+   cp .env.example .env
+   ```
+
+2. 编辑 `.env` 文件，填入您的 Tushare Token：
+
+   ```text
+   TUSHARE_TOKEN=您的Token
+   ```
+
+*注意：`.env` 已被包含在 `.gitignore` 中，您的隐私数据不会被上传。*
 
 ### 下载历史 K 线（qfq，日线）
 
@@ -350,6 +354,7 @@ python select_stock.py \
 ## 项目结构
 
 ```
+
 .
 ├── configs.json             # 选择器参数（示例见上文）
 ├── fetch_kline.py           # 从 stocklist.csv 读取并抓取 Tushare 日线（qfq）
@@ -359,6 +364,7 @@ python select_stock.py \
 ├── data/                    # 行情 CSV 输出目录
 ├── fetch.log                # 抓取日志
 └── select_results.log       # 选股日志
+
 ```
 
 ---
