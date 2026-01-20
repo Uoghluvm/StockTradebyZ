@@ -136,12 +136,27 @@ def _filter_by_boards_stocklist(df: pd.DataFrame, exclude_boards: set[str]) -> p
     return df[mask].copy()
 
 def load_codes_from_stocklist(stocklist_csv: Path, exclude_boards: set[str]) -> List[str]:
-    df = pd.read_csv(stocklist_csv)    
+    if not stocklist_csv.exists():
+        logger.info("未找到 %s，尝试从 Tushare 自动获取最新 A 股列表...", stocklist_csv)
+        try:
+            # 获取全量上市股票列表
+            df_basic = pro.stock_basic(exchange='', list_status='L', fields='ts_code,symbol,name,area,industry')
+            if df_basic is None or df_basic.empty:
+                raise ValueError("Tushare 返回股票列表为空")
+            df_basic.to_csv(stocklist_csv, index=False)
+            logger.info("已自动生成并保存股票列表至 %s", stocklist_csv)
+            df = df_basic
+        except Exception as e:
+            logger.error("从 Tushare 获取股票列表失败: %s", e)
+            return []
+    else:
+        df = pd.read_csv(stocklist_csv)    
+    
     df = _filter_by_boards_stocklist(df, exclude_boards)
     codes = df["symbol"].astype(str).str.zfill(6).tolist()
     codes = list(dict.fromkeys(codes))  # 去重保持顺序
-    logger.info("从 %s 读取到 %d 只股票（排除板块：%s）",
-                stocklist_csv, len(codes), ",".join(sorted(exclude_boards)) or "无")
+    logger.info("加载到 %d 只股票（排除板块：%s）",
+                len(codes), ",".join(sorted(exclude_boards)) or "无")
     return codes
 
 # --------------------------- 单只抓取（全量覆盖保存） --------------------------- #
