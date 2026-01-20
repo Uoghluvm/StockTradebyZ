@@ -10,26 +10,23 @@
 
 * [项目简介](#项目简介)
 * [快速上手](#快速上手)
-
   * [环境与依赖](#环境与依赖)
   * [准备 Tushare Token](#准备-tushare-token)
   * [准备 stocklist.csv](#准备-stocklistcsv)
   * [下载历史 K 线（qfq，日线）](#下载历史-k-线qfq日线)
   * [运行选股](#运行选股)
 * [参数说明](#参数说明)
-
   * [`fetch_kline.py`](#fetch_klinepy)
   * [`select_stock.py`](#select_stockpy)
-* [统一当日过滤 & 知行约束](#统一当日过滤--知行约束)
-* [内置策略（Selector）](#内置策略selector)
-
-  * [1. BBIKDJSelector（少妇战法）](#1-bbikdjselector少妇战法)
-  * [2. SuperB1Selector（SuperB1战法）](#2-superb1selectorsuperb1战法)
-  * [3. BBIShortLongSelector（补票战法）](#3-bbishortlongselector补票战法)
-  * [4. PeakKDJSelector（填坑战法）](#4-peakkdjselector填坑战法)
-  * [5. MA60CrossVolumeWaveSelector（上穿60放量战法）](#5-ma60crossvolumewaveselector上穿60放量战法)
-  * [6. BigBullishVolumeSelector（暴力K战法）](#6-bigbullishvolumeselector暴力k战法)
-
+  * [`SectorShift.py` (找机会)](#sectorshiftpy-找机会)
+  * [`find_stock...py` (做复盘)](#find_stock_by_price_concurrentpy-做复盘)
+* [内置策略 (Selector)](#内置策略selector)
+  * [1. 少妇战法](#1-bbikdjselector少妇战法)
+  * [2. SuperB1战法](#2-superb1selectorsuperb1战法)
+  * [3. 补票战法](#3-bbishortlongselector补票战法)
+  * [4. 填坑战法](#4-peakkdjselector填坑战法)
+  * [5. 上穿60放量战法](#5-ma60crossvolumewaveselector上穿60放量战法)
+  * [6. 暴力K战法](#6-bigbullishvolumeselector暴力k战法)
 * [项目结构](#项目结构)
 * [常见问题](#常见问题)
 * [免责声明](#免责声明)
@@ -38,11 +35,13 @@
 
 ## 项目简介
 
-| 名称                    | 功能简介                                                                                                                                                                               |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`fetch_kline.py`**  | 仅使用 **Tushare** 抓取 **A 股日线（前复权 qfq）**。**股票池从 `stocklist.csv` 读取**，支持排除 **创业板/科创板/北交所**，并发抓取，**每次运行全量覆盖保存**（不做增量合并），输出 CSV 列：`date, open, close, high, low, volume`。 |
-| **`select_stock.py`** | 加载 `./data` 目录内 CSV 行情与 `configs.json`，批量执行选择器（Selector）并输出结果到控制台与 `select_results.log`。                                                                                           |
-| **`Selector.py`**     | 实现各类战法（选择器）。**已删除 TePu 战法**；现包含 5 个策略，统一纳入“当日过滤 & 知行约束”。                                                                                                                           |
+| 文件名 | 功能简介 |
+| :--- | :--- |
+| **`fetch_kline.py`** | 仅使用 **Tushare** 抓取 **A 股日线（前复权 qfq）**。支持排除板块，并发抓取，全量覆盖。 |
+| **`select_stock.py`** | 批量执行选股策略，输出结果到控制台与 `select_results.log`。 |
+| **`Selector.py`** | 策略核心逻辑库，包含 6 个经典战法的计算实现（含知行约束过滤）。 |
+| **`SectorShift.py`** | **找机会**：行业超卖统计，发现板块级别的底部机会。 |
+| **`find_stock...py`** | **做复盘**：并发价格搜索，快速定位历史支撑/压力位的标的。 |
 
 ---
 
@@ -51,15 +50,14 @@
 ### 环境与依赖
 
 ```bash
-# Python 3.11/3.12 均可，示例以 3.12
-conda create -n stock python=3.12 -y
-conda activate stock
+# 创建环境（Python 3.12）
+conda create -n stocktest python=3.12 -y
+conda activate stocktest
 
 # 安装依赖
 pip install -r requirements.txt
 ```
 
-> **自动激活**：项目中包含 `.conda_env` 配置，配合 Zsh 钩子可以实现进入目录自动激活 `stock` 环境。
 > 关键依赖：`pandas`, `tqdm`, `tushare`, `numpy`, `scipy`, `python-dotenv`。
 
 ### 准备 Tushare Token
@@ -133,6 +131,37 @@ python select_stock.py \
 | `--data-dir` | `./data`         | CSV 行情目录 |
 | `--config`   | `./configs.json` | 选择器配置    |
 | `--date`     | 数据最后交易日          | 选股交易日    |
+
+### `SectorShift.py` (找机会)
+
+用于分析行业板块的整体超卖情况：
+
+```bash
+python SectorShift.py \
+  --data_dir ./data \
+  --j_threshold 15 \
+  --trade_date 2025-09-10
+```
+
+* `--j_threshold`: J 值阈值，默认 15，越低代表超卖越严重。
+* `--trade_date`: 指定日期，不传则取最新日期。
+
+### `find_stock_by_price_concurrent.py` (做复盘)
+
+并发查找曾经到达过某个价位的股票：
+
+```bash
+python find_stock_by_price_concurrent.py \
+  --price 15.5 \
+  --type close \
+  --tolerance 0.01 \
+  --start 2024-01-01
+```
+
+* `--price`: 目标价格（核心参数）。
+* `--type`: 价格类型，可选 `close`, `high`, `low`。
+* `--tolerance`: 容差，0.01 代表目标价上下 1% 范围内。
+* `--workers`: 并发数，默认自动匹配核心数。
 
 ---
 
@@ -333,38 +362,24 @@ python select_stock.py \
 
 `configs.json` 预设：
 
-```json
-{
-  "class": "BigBullishVolumeSelector",
-  "alias": "暴力K战法",
-  "activate": true,
-  "params": {
-    "up_pct_threshold": 0.06,
-    "upper_wick_pct_max": 0.02,
-    "require_bullish_close": true,
-    "close_lt_zxdq_mult": 1.15,
-    "vol_lookback_n": 20,
     "vol_multiple": 2.5
   }
 }
 
-
----
-
-## 项目结构
-
 ```
 
+```text
 .
-├── configs.json             # 选择器参数（示例见上文）
-├── fetch_kline.py           # 从 stocklist.csv 读取并抓取 Tushare 日线（qfq）
-├── select_stock.py          # 批量选股入口
-├── Selector.py              # 策略实现（含公共指标/过滤）
-├── stocklist.csv            # 你的股票池（示例列：ts_code/symbol/...）
-├── data/                    # 行情 CSV 输出目录
-├── fetch.log                # 抓取日志
-└── select_results.log       # 选股日志
-
+├── configs.json             # 选择器参数配置
+├── fetch_kline.py           # 数据抓取工具 (Tushare)
+├── select_stock.py          # 选股运行入口
+├── SectorShift.py           # 行业分析工具 (找机会)
+├── find_stock_by_price...   # 价格回溯工具 (做复盘)
+├── Selector.py              # 策略逻辑核心库
+├── stocklist.csv            # 股票池定义
+├── .env                     # Token 配置文件 (Git已忽略)
+├── data/                    # 行情数据存储目录
+└── logs/                    # 日志文件 (fetch.log, select.log等)
 ```
 
 ---
