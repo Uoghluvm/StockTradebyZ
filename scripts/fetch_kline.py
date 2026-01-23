@@ -157,14 +157,14 @@ def load_codes_from_stocklist(stocklist_csv: Path, exclude_boards: set[str]) -> 
                 len(codes), ",".join(sorted(exclude_boards)) or "无")
     return codes
 
-# --------------------------- 单只抓取（全量覆盖保存） --------------------------- #
+# --------------------------- 单只抓取（全量覆盖保存 Parquet） --------------------------- #
 def fetch_one(
     code: str,
     start: str,
     end: str,
     out_dir: Path,
 ):
-    csv_path = out_dir / f"{code}.csv"
+    parquet_path = out_dir / f"{code}.parquet"
 
     for attempt in range(1, 4):
         try:
@@ -173,7 +173,7 @@ def fetch_one(
                 logger.debug("%s 无数据，生成空表。", code)
                 new_df = pd.DataFrame(columns=["date", "open", "close", "high", "low", "volume"])
             new_df = validate(new_df)
-            new_df.to_csv(csv_path, index=False)  # 直接覆盖保存
+            new_df.to_parquet(parquet_path, index=False, engine="pyarrow")  # 保存为 Parquet
             break
         except Exception as e:
             if _looks_like_ip_ban(e):
@@ -192,7 +192,7 @@ def fetch_one(
     root_dir = current_dir.parent
     
     default_stocklist = root_dir / "config" / "stock_list.csv"
-    default_out = root_dir / "data"
+    default_out = root_dir / "data_parquet"  # Parquet-first architecture
 
     parser = argparse.ArgumentParser(description="从 stocklist.csv 读取股票池并用 Tushare 抓取日线K线（固定qfq，全量覆盖）")
     # 抓取范围

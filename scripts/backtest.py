@@ -60,20 +60,20 @@ def load_selection_csv(csv_file: str) -> tuple[str, list[dict]]:
 
 def load_stock_data(code: str, data_dir: Path) -> Optional[pd.DataFrame]:
     """
-    加载单只股票的历史数据
+    加载单只股票的历史数据 (Parquet 格式)
     
     Args:
         code: 股票代码（6位数字）
-        data_dir: 数据目录路径
+        data_dir: Parquet 数据目录路径
         
     Returns:
         DataFrame 或 None（如果文件不存在）
     """
-    csv_path = data_dir / f"{code}.csv"
-    if not csv_path.exists():
+    parquet_path = data_dir / f"{code}.parquet"
+    if not parquet_path.exists():
         return None
     
-    df = pd.read_csv(csv_path, parse_dates=['date'])
+    df = pd.read_parquet(parquet_path)
     df = df.sort_values('date').reset_index(drop=True)
     return df
 
@@ -157,13 +157,13 @@ def calculate_returns(df: pd.DataFrame, buy_date: str, hold_periods: list[int] =
     return res
 
 
-def run_backtest(input_path: str, data_dir: str = './data') -> pd.DataFrame:
+def run_backtest(input_path: str, data_dir: str = './data_parquet') -> pd.DataFrame:
     """
-    执行回测
+    执行回测 (Parquet-first)
     
     Args:
         input_path: 选股 CSV 文件路径
-        data_dir: 数据目录
+        data_dir: Parquet 数据目录
         
     Returns:
         回测结果 DataFrame

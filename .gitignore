@@ -1,5 +1,6 @@
 # Data & Logs
 data/
+data_parquet/
 logs/
 results/
 *.log

@@ -58,19 +58,28 @@ def get_logs_dates():
     return dates
 
 def is_trading_day(date_str: str) -> bool:
-    """检查某日是否为交易日 (通过抽样检查 data/ 目录中的股票是否有该日数据)"""
+    """检查某日是否为交易日 (优先使用 Parquet，回退到 CSV)"""
+    parquet_dir = Path("data_parquet")
     data_dir = Path("data")
-    if not data_dir.exists():
-        return True  # 如果没有数据目录，默认认为是交易日
     
     # 抽样检查几只大盘股的数据
-    sample_stocks = ["000001.csv", "600000.csv", "000002.csv"]
+    sample_stocks = ["000001", "600000", "000002"]
     
-    for stock_file in sample_stocks:
-        csv_path = data_dir / stock_file
+    for code in sample_stocks:
+        # 优先检查 Parquet
+        parquet_path = parquet_dir / f"{code}.parquet"
+        if parquet_path.exists():
+            try:
+                df = pd.read_parquet(parquet_path, columns=['date'])
+                if date_str in df['date'].astype(str).values:
+                    return True
+            except Exception:
+                pass
+        
+        # 回退到 CSV
+        csv_path = data_dir / f"{code}.csv"
         if csv_path.exists():
             try:
-                # 只读取 date 列以节省内存
                 df = pd.read_csv(csv_path, usecols=['date'])
                 if date_str in df['date'].values:
                     return True
@@ -379,11 +388,10 @@ if page == "DASHBOARD":
             )
             # Swiss Style Customization
             fig.update_layout(
+                title="",  # Explicitly set empty title to prevent undefined
                 plot_bgcolor="white",
                 paper_bgcolor="white",
                 font_family="Inter",
-                title_font_family="Inter",
-                title_font_size=20,
             )
             fig.update_xaxes(showgrid=True, gridcolor='#eee', zerolinecolor='black')
             fig.update_yaxes(showgrid=True, gridcolor='#eee', zerolinecolor='black')
@@ -393,7 +401,85 @@ if page == "DASHBOARD":
 
         # 3. Table
         st.markdown(f"### {T('table_title')}")
-        st.dataframe(summary_df, use_container_width=True)
+        
+        # 列名映射和说明 - 让数据更易读
+        column_config = {
+            "策略": st.column_config.TextColumn(
+                "策略名称" if st.session_state['language'] == 'CN' else "Strategy",
+                help="选股策略组合名称"
+            ),
+            "总荐股数": st.column_config.NumberColumn(
+                "样本数" if st.session_state['language'] == 'CN' else "Samples",
+                help="该策略在回测期间总共推荐的股票数量",
+                format="%d"
+            ),
+            "收盘_5日均%": st.column_config.NumberColumn(
+                "5日收益%" if st.session_state['language'] == 'CN' else "5D Ret%",
+                help="以收盘价买入，持有5日后的平均收益率",
+                format="%.2f%%"
+            ),
+            "开盘_5日均%": st.column_config.NumberColumn(
+                "5日收益%(开)" if st.session_state['language'] == 'CN' else "5D Ret%(O)",
+                help="以次日开盘价买入，持有5日后的平均收益率",
+                format="%.2f%%"
+            ),
+            "收盘收益_1日(%)_mean": st.column_config.NumberColumn(
+                "1日%" if st.session_state['language'] == 'CN' else "1D%",
+                help="持有1日平均收益",
+                format="%.2f%%"
+            ),
+            "收盘收益_2日(%)_mean": st.column_config.NumberColumn(
+                "2日%" if st.session_state['language'] == 'CN' else "2D%",
+                help="持有2日平均收益",
+                format="%.2f%%"
+            ),
+            "收盘收益_3日(%)_mean": st.column_config.NumberColumn(
+                "3日%" if st.session_state['language'] == 'CN' else "3D%",
+                help="持有3日平均收益",
+                format="%.2f%%"
+            ),
+            "收盘收益_5日(%)_mean": st.column_config.NumberColumn(
+                "5日%" if st.session_state['language'] == 'CN' else "5D%",
+                help="持有5日平均收益",
+                format="%.2f%%"
+            ),
+            "收盘收益_10日(%)_mean": st.column_config.NumberColumn(
+                "10日%" if st.session_state['language'] == 'CN' else "10D%",
+                help="持有10日平均收益",
+                format="%.2f%%"
+            ),
+            "最佳周期": st.column_config.TextColumn(
+                "最佳持仓" if st.session_state['language'] == 'CN' else "Best Hold",
+                help="收益最高的持有天数"
+            ),
+            "最佳均收": st.column_config.NumberColumn(
+                "最佳收益%" if st.session_state['language'] == 'CN' else "Best Ret%",
+                help="最佳持有周期对应的平均收益率",
+                format="%.2f%%"
+            ),
+            "周期详情": st.column_config.TextColumn(
+                "各周期收益" if st.session_state['language'] == 'CN' else "Period Details",
+                help="1日/2日/3日/5日/10日各周期的平均收益率",
+                width="large"
+            ),
+            "收盘_胜率%": st.column_config.NumberColumn(
+                "胜率%" if st.session_state['language'] == 'CN' else "Win Rate%",
+                help="正收益股票数量 ÷ 总推荐数量 × 100%",
+                format="%.1f%%"
+            ),
+            "综合得分": st.column_config.NumberColumn(
+                "综合评分" if st.session_state['language'] == 'CN' else "Score",
+                help="胜率 × 0.4 + 5日平均收益 × 0.6 的综合评价指标",
+                format="%.1f"
+            ),
+        }
+        
+        st.dataframe(
+            summary_df, 
+            use_container_width=True,
+            column_config=column_config,
+            hide_index=True
+        )
 
 
 elif page == "LABORATORY":
@@ -495,90 +581,73 @@ elif page == "LABORATORY":
             end_d = c2.date_input(T('run_end_date'), value=date.today())
             skip_exist = col_params.checkbox(T('run_skip_existing'), value=True)
             
+            # 并行度控制
+            parallel_degree = col_params.slider(
+                "⚡ " + ("Parallel Degree" if st.session_state.get('lang') == 'en' else "并行度"),
+                min_value=1, max_value=6, value=2,
+                help="Number of dates to process simultaneously. Higher = faster but more resource usage."
+            )
+            
             if st.button(T('btn_run_batch')):
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 log_box = st.expander("Execution Log", expanded=True)
                 
-                # 生成日期序列
-                delta = end_d - start_d
-                date_list = [start_d + timedelta(days=i) for i in range(delta.days + 1)]
-                total = len(date_list)
+                # 使用 batch_run.py 进行并行处理
+                start_str = str(start_d)
+                end_str = str(end_d)
                 
-                for i, d in enumerate(date_list):
-                    d_str = str(d)
-                    
-                    # 检查是否为交易日
-                    if not is_trading_day(d_str):
-                        log_box.write(f"📅 Skip {d_str} (Non-trading day)")
-                        progress_bar.progress((i + 1) / total)
+                log_box.write(f"🚀 Starting parallel batch: {start_str} → {end_str} (parallel={parallel_degree})")
+                
+                cmd = [
+                    sys.executable, "scripts/batch_run.py",
+                    "--start", start_str,
+                    "--end", end_str,
+                    "--parallel", str(parallel_degree)
+                ]
+                if skip_exist:
+                    cmd.append("--skip")
+                
+                # 运行批量脚本并实时读取输出
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1
+                )
+                
+                total_days_estimate = (end_d - start_d).days + 1
+                completed = 0
+                
+                for line in process.stdout:
+                    line = line.strip()
+                    if not line:
                         continue
                     
-                    need_select = True
-                    need_backtest = True
-                    
-                    # 检查已存在 (文件存在 且 非空)
-                    log_p = Path(f"logs/{d_str}选股.csv")
-                    res_p = Path(f"results/回测结果_{d_str}.csv")
-                    
-                    log_valid = log_p.exists() and log_p.stat().st_size > 0
-                    res_valid = res_p.exists() and res_p.stat().st_size > 0
-                    
-                    if skip_exist:
-                        if log_valid:
-                            need_select = False
-                            log_box.write(f"ℹ️ Skip Selection {d_str} (Log exists)")
-                        
-                        if res_valid:
-                            need_backtest = False
-                    
-                    # 强制执行时，全部为 True
-                    
-                    # Run Selection
-                    if need_select:
-                        status_text.text(f"Selecting {d_str}...")
-                        log_box.write(f"▶️ **Selecting {d_str}...**")
-                        
-                        single_prog = st.progress(0)
-                        cmd_sel = [sys.executable, "scripts/select_stock.py", "--date", d_str]
-                        out_sel, ret_sel = run_process_with_progress(cmd_sel, progress_bar=single_prog)
-                        single_prog.empty()
-                        
-                        if ret_sel != 0:
-                            log_box.error(f"❌ Selection Failed {d_str}")
-                            need_backtest = False # 选股失败则无法回测
-                        else:
-                            log_box.success(f"✅ Selection Done {d_str}")
-                            # 即使有日志输出，也未必需要在 batch 模式刷屏，除非出错
-                    
-                    # Run Backtest (Selection might have just finished, so check log again)
-                    log_valid = log_p.exists() and log_p.stat().st_size > 0  # Re-check after selection
-                    if need_backtest and log_valid:
-                        # 如果需要回测 且 日志存在 (新生成或已存在)
-                        log_box.write(f"▶️ **Backtesting {d_str}...**")
-                        
-                        # Use Popen to avoid blocking/buffering issues
-                        cmd_bt = [sys.executable, "scripts/backtest.py", str(log_p)]
-                        out_bt, ret_bt = run_process_with_progress(cmd_bt)
-                        
-                        if ret_bt == 0:
-                            log_box.success(f"✅ Backtest Done {d_str}")
-                            # Optional: Show output if verbose, but backtest output can be long.
-                            # showing last few lines might be better, or just full output in code block
-                            with st.expander(f"Details {d_str}", expanded=False):
-                                st.code(out_bt)
-                        else:
-                            log_box.error(f"❌ Backtest Failed {d_str}")
-                            log_box.code(out_bt)
-                    elif need_backtest:
-                         log_box.warning(f"⚠️ No log found for {d_str}, cannot backtest.")
-                            
-                    progress_bar.progress((i + 1) / total)
-                    time.sleep(0.05)
+                    # 解析进度
+                    if line.startswith("[") and "%]" in line:
+                        try:
+                            pct = int(line.split("%]")[0].replace("[", "").strip())
+                            progress_bar.progress(pct / 100)
+                            completed += 1
+                        except:
+                            pass
+                        log_box.write(line)
+                    elif "===" in line or "找到" in line:
+                        log_box.write(f"**{line}**")
+                    else:
+                        log_box.write(line)
                 
-                status_text.text("Batch processing complete!")
-                st.success(T('success_finish'))
-                subprocess.run([sys.executable, "scripts/analyze_results.py"], check=False)
+                process.wait()
+                progress_bar.progress(1.0)
+                
+                if process.returncode == 0:
+                    st.success("✅ Batch processing complete!")
+                    st.balloons()
+                else:
+                    st.error("❌ Batch processing failed")
+
 
 elif page == "BACKTEST":
     swiss_header(T('bt_title'), T('bt_subtitle'))
