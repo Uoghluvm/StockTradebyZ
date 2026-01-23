@@ -10,21 +10,21 @@ import json
 import time
 from datetime import datetime, date, timedelta
 
-# 引入自定义 Swiss Style 样式
-from utils.ui import inject_swiss_style, swiss_header
+# 引入自定义 Cyberpunk 样式
+from utils.style_cyberpunk import inject_cyberpunk_style, cyberpunk_header
 # 引入多语言支持
 from utils.lang import get_text, TRANSLATIONS
 
 # 页面配置
 st.set_page_config(
-    page_title="StockTrade Swiss Lab",
-    page_icon="🇨🇭",
+    page_title="StockTrade Cyber Systems",
+    page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # 注入 CSS
-inject_swiss_style()
+inject_cyberpunk_style()
 
 # ---------- 状态管理 ----------
 if 'language' not in st.session_state:
@@ -180,9 +180,9 @@ def plot_activity_heatmap(df):
     if df.empty:
         return None
         
-    # GitHub Color Palette (Light Mode)
-    # 0: Gray, 1: Light Green, 2: Medium Green, 3: Dark Green, 4: Darkest Green
-    colors = ['#ebedf0', '#9be9a8', '#40c463', '#30a14e', '#216e39']
+    # Cyberpunk Palette
+    # 0: Dark Void, 1: Dim Green, 2: Mid Green, 3: Neon Green, 4: Bright Neon
+    colors = ['#1a1a24', '#0d402b', '#008f4c', '#00cc6a', '#00ff88']
     
     # Range configuration
     max_days = 365 # 1 year view
@@ -266,7 +266,7 @@ def plot_activity_heatmap(df):
             w = (d - start_date).days // 7
             month_labels.append(dict(
                 x=w, y=-1, text=d.strftime('%b'), showarrow=False,
-                xanchor='left', yanchor='bottom', font=dict(size=10, color='#767676')
+                xanchor='left', yanchor='bottom', font=dict(size=10, color='#6b7280')
             ))
             current_month = d.month
             
@@ -289,7 +289,7 @@ def plot_activity_heatmap(df):
             zeroline=False, 
             autorange="reversed",
             fixedrange=True,
-            tickfont=dict(size=10, color='#767676')
+            tickfont=dict(size=10, color='#6b7280')
         ),
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
@@ -382,7 +382,7 @@ else:
 # ---------- 页面逻辑 ----------
 
 if page == "DASHBOARD":
-    swiss_header(T('dash_title'), T('dash_subtitle'))
+    cyberpunk_header(T('dash_title'), T('dash_subtitle'))
     
     summary_df = get_summary_with_refresh()
     
@@ -441,8 +441,9 @@ if page == "DASHBOARD":
                 legend=dict(orientation="h", y=1.05, yanchor="bottom", x=0, xanchor="left"),
                 hovermode="x unified",
                 title="",
-                plot_bgcolor="white",
-                paper_bgcolor="white"
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="#e0e0e0")
             )
             fig_idx.update_xaxes(showgrid=True, gridcolor='#eee')
             fig_idx.update_yaxes(showgrid=True, gridcolor='#eee', zeroline=True, zerolinecolor='black')
@@ -465,13 +466,29 @@ if page == "DASHBOARD":
         
         # 2. Chart
         try:
+            # 优化气泡大小显示：使用对数尺度的平方根来平滑差异 (Log-Squish)
+            # 避免"暴力K" (几千样本) 与其他 (几十样本) 差异过大导致小气泡不可见
+            import numpy as np
+            summary_df['display_size'] = np.log1p(summary_df['总荐股数']) * 10 
+            
             fig = px.scatter(
                 summary_df,
-                x="收盘_胜率%", y="收盘_5日均%", size="总荐股数", color="策略",
-                hover_name="策略", hover_data=["最佳周期", "最佳均收"],
-                height=500, color_discrete_sequence=px.colors.qualitative.Dark24
+                x="收盘_胜率%", y="收盘_5日均%", 
+                size="display_size", # Use calculated size
+                color="策略",
+                hover_name="策略", 
+                # Show real sample count in hover
+                hover_data={"display_size": False, "总荐股数": True, "最佳周期": True, "最佳均收": True},
+                height=500, color_discrete_sequence=["#00ff88", "#ff00ff", "#00d4ff", "#ffff00"]
             )
-            fig.update_layout(title="", plot_bgcolor="white", paper_bgcolor="white", font_family="Inter")
+            fig.update_traces(marker=dict(line=dict(width=1, color='DarkSlateGrey'))) # Add border to bubbles for clarity
+            fig.update_layout(
+                title="", 
+                plot_bgcolor="rgba(0,0,0,0)", 
+                paper_bgcolor="rgba(0,0,0,0)", 
+                font=dict(color="#e0e0e0", family="JetBrains Mono"),
+                legend=dict(font=dict(color="#e0e0e0"))
+            )
             
             # 坐标轴优化
             min_win = max(40, summary_df['收盘_胜率%'].min() - 5)
@@ -541,10 +558,20 @@ if page == "DASHBOARD":
                     col3.metric("标准差", f"{returns.std():.2f}")
                     col4.metric("夏普", f"{returns.mean() / returns.std():.2f}" if returns.std() > 0 else "N/A")
                     
-                    fig = px.histogram(returns, nbins=30, title=f"{selected_strategy} - 5日收益分布", labels={'value': '收益率(%)', 'count': '频数'}, color_discrete_sequence=['#4CAF50'])
-                    fig.add_vline(x=0, line_dash="dash", line_color="red", annotation_text="零线")
-                    fig.add_vline(x=returns.mean(), line_dash="dot", line_color="blue", annotation_text=f"均值:{returns.mean():.1f}%")
-                    fig.update_layout(showlegend=False, height=350, plot_bgcolor="white", paper_bgcolor="white")
+                    fig = px.histogram(
+                        returns, nbins=30, title=f"{selected_strategy} - 5日收益分布", 
+                        labels={'value': '收益率(%)', 'count': '频数'}, 
+                        color_discrete_sequence=['#00ff88']
+                    )
+                    fig.add_vline(x=0, line_dash="dash", line_color="#ff3366", annotation_text="零线")
+                    fig.add_vline(x=returns.mean(), line_dash="dot", line_color="#00d4ff", annotation_text=f"均值:{returns.mean():.1f}%")
+                    fig.update_layout(
+                        showlegend=False, 
+                        height=350, 
+                        plot_bgcolor="rgba(0,0,0,0)", 
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        font=dict(color="#e0e0e0")
+                    )
                     st.plotly_chart(fig, use_container_width=True)
 
         # 5. Scoring Formula
@@ -560,7 +587,7 @@ if page == "DASHBOARD":
                 b2.metric("中证1000 (CSI1000)", f"Score: {zz1000['score']:.4f}", f"Sharpe: {zz1000['sharpe']:.2f} | WR: {zz1000['win_rate']:.1f}%")
 
 elif page == "LABORATORY":
-    swiss_header(T('lab_title'), T('lab_subtitle'))
+    cyberpunk_header(T('lab_title'), T('lab_subtitle'))
     
     tab1, tab2 = st.tabs([T('tab_daily'), T('tab_exec')])
     
@@ -727,7 +754,7 @@ elif page == "LABORATORY":
 
 
 elif page == "SIMULATION":
-    swiss_header(T('sim_title'), T('sim_subtitle'))
+    cyberpunk_header(T('sim_title'), T('sim_subtitle'))
     
     # 1. Settings
     with st.container():
@@ -1056,7 +1083,7 @@ elif page == "SIMULATION":
         progress_bar.empty()
 
 elif page == "BACKTEST":
-    swiss_header(T('bt_title'), T('bt_subtitle'))
+    cyberpunk_header(T('bt_title'), T('bt_subtitle'))
     
     st.markdown(f"##### {T('bt_select_logs')}")
     
@@ -1165,7 +1192,7 @@ elif page == "BACKTEST":
 
 
 elif page == "SETTINGS":
-    swiss_header(T('set_title'), T('set_subtitle'))
+    cyberpunk_header(T('set_title'), T('set_subtitle'))
     
     st.markdown(f"##### {T('set_token_config')}")
     
