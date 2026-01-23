@@ -53,7 +53,28 @@ def inject_cyberpunk_style():
         }
         
         /* 移除 Streamlit 默认 header/footer */
-        header[data-testid="stHeader"] { display: none; }
+        /* 隐藏 Header 背景但保留按钮 (如 Sidebar Toggle) */
+        header[data-testid="stHeader"] {
+            background-color: transparent !important;
+            z-index: 999999;
+        }
+        
+        /* 隐藏顶部彩虹条 */
+        header[data-testid="stHeader"] > div:first-child {
+            background: transparent !important;
+        }
+
+        /* 确保所有 Header 按钮 (汉堡菜单, Sidebar Toggle, Running Man) 可见并为霓虹色 */
+        header[data-testid="stHeader"] button {
+            color: var(--neon-green) !important;
+            display: block !important;
+        }
+        
+        /* 针对 Sidebar Toggle 的特定增强 (如果有特定 testid, 但通用 button 选择器通常足够) */
+        button[data-testid="stSidebarCollapsedControl"] {
+            color: var(--neon-green) !important;
+            display: block !important;
+        }
         footer { display: none; }
         
         /* App 背景: Void + Grid Pattern + Scanlines */
