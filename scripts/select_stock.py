@@ -10,9 +10,20 @@ from typing import Any, Dict, Iterable, List
 
 import pandas as pd
 
+# 适配新目录结构: 添加根目录到 sys.path
+current_dir = Path(__file__).resolve().parent
+root_dir = current_dir.parent
+sys.path.append(str(root_dir))
+
+from src.strategy import SelectorFactory, precompute_indicators
+
 # ---------- 日志 ----------
 def setup_logging(date_str: str):
-    log_filename = f"{date_str}选股.log"
+    # Logs 目录位于根目录
+    log_dir = root_dir / "logs"
+    log_dir.mkdir(exist_ok=True)
+    
+    log_filename = log_dir / f"{date_str}选股.log"
     # 清除之前的 handlers 以免重复打印
     for handler in logging.root.handlers[:]:
         logging.root.removeHandler(handler)
@@ -22,7 +33,7 @@ def setup_logging(date_str: str):
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
             logging.StreamHandler(sys.stdout),
-            logging.FileHandler(log_filename, encoding="utf-8"),
+            logging.FileHandler(str(log_filename), encoding="utf-8", mode="w"),
         ],
     )
     return logging.getLogger("select")
@@ -46,13 +57,17 @@ def load_stock_names(csv_path: Path) -> Dict[str, str]:
 
 def load_data(data_dir: Path, codes: Iterable[str]) -> Dict[str, pd.DataFrame]:
     frames: Dict[str, pd.DataFrame] = {}
-    for code in codes:
+    total = len(codes)
+    for i, code in enumerate(codes):
+        if i % 100 == 0:
+            print(f"[LOAD] {i}/{total}", flush=True)
+            
         fp = data_dir / f"{code}.csv"
         if not fp.exists():
-            # 这里先临时用 print，因为 logger 还没初始化
             continue
         df = pd.read_csv(fp, parse_dates=["date"]).sort_values("date")
         frames[code] = df
+    print(f"[LOAD] {total}/{total}", flush=True)
     return frames
 
 
@@ -98,8 +113,12 @@ def instantiate_selector(cfg: Dict[str, Any]):
 
 def main():
     p = argparse.ArgumentParser(description="Run selectors defined in configs.json")
-    p.add_argument("--data-dir", default="./data", help="CSV 行情目录")
-    p.add_argument("--config", default="./configs.json", help="Selector 配置文件")
+    # 默认路径调整
+    default_data = root_dir / "data"
+    default_config = root_dir / "config" / "strategies.json"
+    
+    p.add_argument("--data-dir", default=str(default_data), help="CSV 行情目录")
+    p.add_argument("--config", default=str(default_config), help="Selector 配置文件")
     p.add_argument("--date", help="交易日 YYYY-MM-DD；缺省=数据最新日期")
     p.add_argument("--tickers", default="all", help="'all' 或逗号分隔股票代码列表")
     args = p.parse_args()
@@ -144,36 +163,111 @@ def main():
         logger.info("未指定 --date，使用最近日期 %s", date_str)
 
     # --- 加载股票名称映射 ---
-    name_map = load_stock_names(Path("stocklist.csv"))
+    name_map = load_stock_names(root_dir / "config" / "stock_list.csv")
 
     # --- 加载 Selector 配置 ---
     selector_cfgs = load_config(Path(args.config))
-
-    # --- 逐个 Selector 运行 ---
+    
+    # 提前实例化所有启用的策略
+    active_selectors = []
     for cfg in selector_cfgs:
         if cfg.get("activate", True) is False:
             continue
         try:
-            alias, selector = instantiate_selector(cfg)
+            # 使用 src.strategy.SelectorFactory
+            selector = SelectorFactory.create_selector(cfg.get("class"), cfg.get("params", {}))
+            alias = cfg.get("alias", cfg.get("class"))
+            if selector:
+                active_selectors.append((alias, selector))
+            else:
+                logger.error("无法创建策略: %s", cfg.get("class"))
         except Exception as e:
-            logger.error("跳过配置 %s：%s", cfg, e)
+            logger.error("初始化策略 %s 失败: %s", cfg.get("class"), e)
             continue
 
-        picks = selector.select(trade_date, data)
+    if not active_selectors:
+        print("无有效策略，退出")
+        sys.exit(0)
 
-        # 整理输出格式：代码(名称)
-        formatted_picks = []
-        for code in (picks or []):
-            name = name_map.get(code, "未知")
-            formatted_picks.append(f"{code}({name})")
+    # 准备结果容器 { alias: [code, code...] }
+    results = {alias: [] for alias, _ in active_selectors}
 
-        # 将结果写入日志，同时输出到控制台
-        logger.info("")
-        logger.info("============== 选股结果 [%s] ==============", alias)
-        logger.info("交易日: %s", date_str)
-        logger.info("符合条件股票数: %d", len(picks) if picks else 0)
-        logger.info("%s", ", ".join(formatted_picks) if formatted_picks else "无符合条件股票")
+    # --- 逐只股票 Precompute + Check ---
+    total = len(data)
+    logger.info(f"开始处理 {total} 只股票 (Precompute Mode)...")
+
+    for i, (code, df) in enumerate(data.items()):
+        if i % 100 == 0:
+            print(f"[PROCESS] {i}/{total}", flush=True)
+
+        if df.empty:
+            continue
+            
+        try:
+            # 1. 预计算指标 (在完整历史数据上)
+            df = precompute_indicators(df)
+            
+            # 2. 截取到交易日 (含)
+            # 必须包含足够的历史供策略回溯 (e.g. 400 天)
+            hist = df[df["date"] <= trade_date]
+            if hist.empty:
+                continue
+            
+            if len(hist) > 400:
+                hist = hist.tail(400)
+            
+            # 3. 遍历策略检查
+            for alias, selector in active_selectors:
+                if selector.check_single(hist):
+                    results[alias].append(code)
+                    
+        except Exception as e:
+            # 仅记录 debug，以免刷屏
+            # logger.debug(f"Error checking {code}: {e}")
+            continue
+
+    print(f"[PROCESS] {total}/{total}", flush=True)
+
+    # --- 构建结果 DataFrame ---
+    # 格式: 代码, 名称, 策略 (多策略用+连接)
+    stock_strategies = {}  # {code: [strategy1, strategy2, ...]}
+    
+    for alias, picks in results.items():
+        for code in picks:
+            if code not in stock_strategies:
+                stock_strategies[code] = []
+            stock_strategies[code].append(alias)
+    
+    # 转换为 DataFrame
+    rows = []
+    for code, strategies in stock_strategies.items():
+        rows.append({
+            '代码': code,
+            '名称': name_map.get(code, '未知'),
+            '策略': '+'.join(strategies)
+        })
+    
+    result_df = pd.DataFrame(rows)
+    
+    # --- 保存 CSV ---
+    logs_dir = root_dir / "logs"
+    logs_dir.mkdir(exist_ok=True)
+    csv_path = logs_dir / f"{date_str}选股.csv"
+    result_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
+    
+    # --- 日志输出 (终端可见) ---
+    logger.info("")
+    logger.info("============== 选股汇总 ==============")
+    logger.info("交易日: %s", date_str)
+    logger.info("符合条件股票总数: %d", len(result_df))
+    logger.info("结果已保存至: %s", csv_path)
+    
+    # 按策略统计
+    for alias, picks in results.items():
+        if picks:
+            logger.info("[%s] %d 只", alias, len(picks))
 
 
 if __name__ == "__main__":
     main()
+

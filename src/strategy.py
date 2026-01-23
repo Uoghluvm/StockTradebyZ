@@ -6,7 +6,15 @@ import pandas as pd
 
 # --------------------------- 通用指标 --------------------------- #
 
+def _print_progress(current, total):
+    if current % 50 == 0 or current == total:
+        print(f"[SELECT] {current}/{total}", flush=True)
+
 def compute_kdj(df: pd.DataFrame, n: int = 9) -> pd.DataFrame:
+    # 幂等检查
+    if "K" in df.columns and "D" in df.columns and "J" in df.columns:
+        return df
+        
     if df.empty:
         return df.assign(K=np.nan, D=np.nan, J=np.nan)
 
@@ -27,6 +35,8 @@ def compute_kdj(df: pd.DataFrame, n: int = 9) -> pd.DataFrame:
 
 
 def compute_bbi(df: pd.DataFrame) -> pd.Series:
+    if "BBI" in df.columns:
+        return df["BBI"]
     ma3 = df["close"].rolling(3).mean()
     ma6 = df["close"].rolling(6).mean()
     ma12 = df["close"].rolling(12).mean()
@@ -38,6 +48,11 @@ def compute_rsv(
     df: pd.DataFrame,
     n: int,
 ) -> pd.Series:
+    col_name = f"RSV_{n}"
+    if col_name in df.columns:
+        return df[col_name]
+    if n == 9 and "RSV" in df.columns: # fallback standard
+         return df["RSV"]
     """
     按公式：RSV(N) = 100 × (C - LLV(L,N)) ÷ (HHV(C,N) - LLV(L,N))
     - C 用收盘价最高值 (HHV of close)
@@ -51,6 +66,8 @@ def compute_rsv(
 
 def compute_dif(df: pd.DataFrame, fast: int = 12, slow: int = 26) -> pd.Series:
     """计算 MACD 指标中的 DIF (EMA fast - EMA slow)。"""
+    if "DIF" in df.columns:
+        return df["DIF"]
     ema_fast = df["close"].ewm(span=fast, adjust=False).mean()
     ema_slow = df["close"].ewm(span=slow, adjust=False).mean()
     return ema_fast - ema_slow
@@ -176,6 +193,8 @@ def compute_zx_lines(
     ZXDQ = EMA(EMA(C,10),10)
     ZXDKX = (MA(C,14)+MA(C,28)+MA(C,57)+MA(C,114))/4
     """
+    if "ZXDQ" in df.columns and "ZXDKX" in df.columns:
+        return df["ZXDQ"], df["ZXDKX"]
     close = df["close"].astype(float)
     zxdq = close.ewm(span=10, adjust=False).mean().ewm(span=10, adjust=False).mean()
 
@@ -243,6 +262,39 @@ def zx_condition_at_positions(
         return False
     return True
 
+    return True
+
+def precompute_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """一键计算所有策略需要的公共指标"""
+    if df.empty: return df
+    
+    # 1. 基础 MA (用于 ZXDKX, MA60)
+    # MA60 (MA60CrossVolume)
+    df["MA60"] = df["close"].rolling(window=60, min_periods=1).mean()
+    
+    # 2. BBI (BBIKDJ, SuperB1, BBIShortLong)
+    df["BBI"] = compute_bbi(df)
+    
+    # 3. KDJ (Most strategies) (Default 9,3,3)
+    df = compute_kdj(df, n=9)
+    
+    # 4. MACD / DIF
+    df["DIF"] = compute_dif(df)
+    
+    # 5. ZX Lines
+    df["ZXDQ"], df["ZXDKX"] = compute_zx_lines(df)
+    
+    # 6. RSV (BBIShortLong specifics)
+    # Note: compute_rsv returns Series, so we assign.
+    # BBIShortLong uses n_short=3, n_long=21 standardly but check params? 
+    # Current code passes n dynamically. 
+    # We can precompute common ones: 3, 9, 21
+    df["RSV_3"] = compute_rsv(df, 3)
+    df["RSV_9"] = compute_rsv(df, 9)
+    df["RSV_21"] = compute_rsv(df, 21)
+    
+    return df
+
 # --------------------------- Selector 类 --------------------------- #
 class BBIKDJSelector:
     """
@@ -270,6 +322,9 @@ class BBIKDJSelector:
         self.j_q_threshold = j_q_threshold      # ← 新增
 
     # ---------- 单支股票过滤 ---------- #
+    def check_single(self, df: pd.DataFrame) -> bool:
+        return self._passes_filters(df)
+
     def _passes_filters(self, hist: pd.DataFrame) -> bool:
         hist = hist.copy()
         hist["BBI"] = compute_bbi(hist)
@@ -334,7 +389,9 @@ class BBIKDJSelector:
         self, date: pd.Timestamp, data: Dict[str, pd.DataFrame]
     ) -> List[str]:
         picks: List[str] = []
-        for code, df in data.items():
+        total = len(data)
+        for i, (code, df) in enumerate(data.items()):
+            _print_progress(i, total)
             hist = df[df["date"] <= date]
             if hist.empty:
                 continue
@@ -342,6 +399,7 @@ class BBIKDJSelector:
             hist = hist.tail(self.max_window + 20)
             if self._passes_filters(hist):
                 picks.append(code)
+        _print_progress(total, total)
         return picks
     
     
@@ -401,6 +459,9 @@ class SuperB1Selector:
         self._extra_for_bbi = self.bbi_selector.max_window + 20
 
     # 单支股票过滤核心
+    def check_single(self, df: pd.DataFrame) -> bool:
+        return self._passes_filters(df)
+
     def _passes_filters(self, hist: pd.DataFrame) -> bool:
         if len(hist) < 2:
             return False
@@ -460,14 +521,17 @@ class SuperB1Selector:
     def select(self, date: pd.Timestamp, data: Dict[str, pd.DataFrame]) -> List[str]:        
         picks: List[str] = []
         min_len = self.lookback_n + self._extra_for_bbi
-
-        for code, df in data.items():
+        
+        total = len(data)
+        for i, (code, df) in enumerate(data.items()):
+            _print_progress(i, total)
+            
             hist = df[df["date"] <= date].tail(min_len)
             if len(hist) < min_len:
                 continue
             if self._passes_filters(hist):
                 picks.append(code)
-
+        _print_progress(total, total)
         return picks
 
 
@@ -491,6 +555,9 @@ class PeakKDJSelector:
         self.j_q_threshold = j_q_threshold
 
     # ---------- 单支股票过滤 ---------- #
+    def check_single(self, df: pd.DataFrame) -> bool:
+        return self._passes_filters(df)
+
     def _passes_filters(self, hist: pd.DataFrame) -> bool:
         if hist.empty:
             return False
@@ -578,13 +645,16 @@ class PeakKDJSelector:
         data: Dict[str, pd.DataFrame],
     ) -> List[str]:
         picks: List[str] = []
-        for code, df in data.items():
+        total = len(data)
+        for i, (code, df) in enumerate(data.items()):
+            _print_progress(i, total)
             hist = df[df["date"] <= date]
             if hist.empty:
                 continue
             hist = hist.tail(self.max_window + 20)  # 额外缓冲
             if self._passes_filters(hist):
                 picks.append(code)
+        _print_progress(total, total)
         return picks
     
 
@@ -615,6 +685,9 @@ class BBIShortLongSelector:
         self.lower_rsv_threshold = lower_rsv_threshold
 
     # ---------- 单支股票过滤 ---------- #
+    def check_single(self, df: pd.DataFrame) -> bool:
+        return self._passes_filters(df)
+
     def _passes_filters(self, hist: pd.DataFrame) -> bool:
         hist = hist.copy()
         hist["BBI"] = compute_bbi(hist)
@@ -681,7 +754,9 @@ class BBIShortLongSelector:
         data: Dict[str, pd.DataFrame],
     ) -> List[str]:
         picks: List[str] = []
-        for code, df in data.items():
+        total = len(data)
+        for i, (code, df) in enumerate(data.items()):
+            _print_progress(i, total)
             hist = df[df["date"] <= date]
             if hist.empty:
                 continue
@@ -694,6 +769,7 @@ class BBIShortLongSelector:
             hist = hist.tail(max(need_len, self.max_window))
             if self._passes_filters(hist):
                 picks.append(code)
+        _print_progress(total, total)
         return picks
     
     
@@ -739,6 +815,40 @@ class MA60CrossVolumeWaveSelector:
         # 线性回归（最小二乘）：斜率 k
         k, _ = np.polyfit(x, seg.values.astype(float), 1)
         return bool(k > 0)
+
+    def check(self, df: pd.DataFrame) -> bool:
+        if df.empty or len(df) < 60:
+            return False
+        df["MA60"] = df["close"].rolling(60).mean()
+        return self._check_logic(df)
+
+    def check_single(self, df: pd.DataFrame) -> bool:
+        if df.empty: return False
+        if "MA60" not in df.columns:
+            df["MA60"] = df["close"].rolling(60).mean()
+        if len(df) < 60:
+            return False
+        return self._check_logic(df)
+
+    def _check_logic(self, df: pd.DataFrame) -> bool:
+        curr = df.iloc[-1]
+        prev = df.iloc[-2]
+
+        # 1. Price > MA60
+        if not (curr["close"] > curr["MA60"] and prev["close"] > prev["MA60"]):
+            return False
+
+        # 2. Volume > 1.35 * MA_Vol_60
+        vol_avg = df["volume"].rolling(60).mean().iloc[-1]
+        if not (curr["volume"] > 1.35 * vol_avg and curr["volume"] > prev["volume"]):
+            return False
+
+        # 3. No big moves recently (Abs PctChg < 9% for last 5 days)
+        recent_chg = df["pct_chg"].tail(5).abs()
+        if (recent_chg > 9).any():
+            return False
+
+        return True
 
     def _passes_filters(self, hist: pd.DataFrame) -> bool:
         """
@@ -825,12 +935,17 @@ class MA60CrossVolumeWaveSelector:
         picks: List[str] = []
         # 给足 60 日均线与量能比较的历史长度
         need_len = max(60 + self.lookback_n + self.ma60_slope_days, self.max_window + 20)
-        for code, df in data.items():
+        
+        total = len(data)
+        for i, (code, df) in enumerate(data.items()):
+            _print_progress(i, total)
+        
             hist = df[df["date"] <= date].tail(need_len)
             if len(hist) < need_len:
                 continue
             if self._passes_filters(hist):
                 picks.append(code)
+        _print_progress(total, total)
         return picks
 
 class BigBullishVolumeSelector:    
@@ -879,6 +994,23 @@ class BigBullishVolumeSelector:
     def _upper_wick_pct(self, o: float, h: float, c: float) -> float:
         return (h - max(o, c)) / max(o, c)
 
+    def check(self, df: pd.DataFrame) -> bool:
+        if df.empty or len(df) < 60:
+            return False
+        return self._check_logic(df)
+
+    def check_single(self, df: pd.DataFrame) -> bool:
+        if df.empty or len(df) < 60:
+            return False
+        return self._check_logic(df)
+
+    def _check_logic(self, df: pd.DataFrame) -> bool:
+        curr = df.iloc[-1]
+        prev = df.iloc[-2]
+
+        k_vol_cond = (curr["volume"] > 1.5 * prev["volume"]) and (curr["close"] > prev["close"])
+        return bool(k_vol_cond)
+    
     def _passes_filters(self, hist: pd.DataFrame) -> bool:
         if hist is None or hist.empty:
             return False
@@ -961,7 +1093,10 @@ class BigBullishVolumeSelector:
         picks: List[str] = []
         need_len = max(self.min_history, self.vol_lookback_n + 2)
 
-        for code, df in data.items():
+        total = len(data)
+        for i, (code, df) in enumerate(data.items()):
+            _print_progress(i, total)
+
             if df is None or df.empty:
                 continue
             hist = df[df["date"] <= date].tail(need_len)
@@ -969,6 +1104,36 @@ class BigBullishVolumeSelector:
                 continue
             if self._passes_filters(hist):
                 picks.append(code)
+        _print_progress(total, total)
 
         return picks
 
+
+class SelectorFactory:
+    """策略工厂类，用于动态创建策略实例"""
+    
+    @staticmethod
+    def create_selector(class_name: str, params: Dict[str, Any]) -> Any:
+        """
+        根据类名和参数创建选择器实例
+        
+        Args:
+            class_name: 策略类名 (e.g. "BBIKDJSelector")
+            params: 初始化参数字典
+            
+        Returns:
+            策略实例 或 None (如果找不到类)
+        """
+        # 获取当前模块的所有全局变量（类）
+        glo = globals()
+        
+        if class_name in glo:
+            cls = glo[class_name]
+            try:
+                # 过滤掉不支持的参数 (简单的处理，如果策略类参数各异)
+                # 目前假设 params 匹配 __init__，如果出现 TypeError 再处理
+                return cls(**params)
+            except TypeError as e:
+                print(f"初始化 {class_name} 失败: {e}")
+                return None
+        return None

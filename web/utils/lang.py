@@ -1,0 +1,173 @@
+# -*- coding: utf-8 -*-
+
+TRANSLATIONS = {
+    'EN': {
+        # Sidebar
+        'nav_dashboard': 'DASHBOARD',
+        'nav_laboratory': 'LABORATORY',
+        'nav_backtest': 'BACKTEST',
+        'nav_settings': 'SETTINGS',
+        'status_active': 'TOKEN ACTIVE',
+        'status_missing': 'TOKEN MISSING',
+        
+        # Dashboard
+        'dash_title': 'STRATEGY DASHBOARD',
+        'dash_subtitle': 'Performance Overview',
+        'dash_no_data': 'Data warehouse empty. Go to LABORATORY to select stocks, or SETTINGS to update data.',
+        'kpi_stocks': 'TOTAL STOCKS',
+        'kpi_strategies': 'STRATEGIES',
+        'kpi_score': 'BEST SCORE',
+        'kpi_days': 'DATA DAYS',
+        'chart_title': 'STRATEGY MATRIX (Win Rate vs Return)',
+        'chart_missing_mpl': 'Missing matplotlib for advanced styling.',
+        'table_title': 'RANKINGS',
+        'activity_map': 'ACTIVITY MAP',
+        'activity_help': 'Number of stocks selected per day (Darker = More)',
+        
+        # Laboratory
+        'lab_title': 'STOCK LABORATORY',
+        'lab_subtitle': 'Selection & Backtest',
+        'tab_daily': 'DAILY ANALYSIS',
+        'tab_exec': 'EXECUTE SELECTION',
+        
+        'sel_date': 'SELECT DATE',
+        'no_data_date': 'NO DATA FOR {date}. TRY RUNNING SELECTION.',
+        'metric_selected': 'SELECTED',
+        'metric_avg_ret': 'AVG RETURN',
+        'section_details': 'DETAILS',
+        
+        'run_title': 'RUN NEW SELECTION',
+        'run_single_date': 'Target Date',
+        'run_start_date': 'Start Date',
+        'run_end_date': 'End Date',
+        'run_skip_existing': 'Skip executed dates',
+        'btn_run_single': 'RUN SELECTION PROCESS',
+        'btn_run_batch': 'RUN BATCH PROCESS',
+        'log_running': 'Running select_stock.py for {date}...',
+        'success_select': 'SELECTION COMPLETE. RUNNING BACKTEST...',
+        'success_finish': 'PROCESS FINISHED. CHECK DAILY ANALYSIS.',
+        'error_failed': 'SELECTION FAILED.',
+
+        # Backtest
+        'bt_title': 'BACKTEST CENTER',
+        'bt_subtitle': 'Historical Performance Simulation',
+        'bt_select_logs': 'Select Logs to Backtest',
+        'bt_table_date': 'Date',
+        'bt_table_log': 'Log File',
+        'bt_table_result': 'Result File',
+        'bt_status_ready': 'Ready',
+        'bt_status_done': 'Done',
+        'bt_status_missing_log': 'No Log',
+        'bt_btn_run': 'RUN BACKTEST',
+        'bt_btn_select_pending': 'Select All Pending',
+        'bt_log_preview': 'Execution Log',
+        
+        # Settings
+        'set_title': 'SYSTEM CONFIG',
+        'set_subtitle': 'Data & Tokens',
+        'set_token_config': 'TUSHARE TOKEN configuration',
+        'input_token': 'Enter Token',
+        'btn_save_token': 'SAVE TOKEN',
+        'msg_token_saved': 'TOKEN SAVED',
+        'set_update_data': 'UPDATE MARKET DATA',
+        'set_update_desc': 'Sync K-line data for all stocks (High memory usage).',
+        'input_start': 'Start Date',
+        'input_end': 'End Date',
+        'btn_fetch': 'FETCH DATA',
+        'msg_fetch_start': 'Starting data fetch info terminal... Check terminal for progress bar.',
+        'msg_bg_start': 'Background process started! Check terminal/logs.',
+        'set_workers': 'Concurrency (Threads)',
+        'set_workers_help': 'Recommendation: 1 for Free Tushare Account, 6 for Paid.',
+        'set_workers_low': '1 (Safe/Free)',
+        'set_workers_high': '6 (Fast/Paid)',
+        'err_start_fail': 'Failed to start: {e}',
+    },
+    'CN': {
+        # Sidebar
+        'nav_dashboard': '策略看板',
+        'nav_laboratory': '选股实验室',
+        'nav_backtest': '回测中心',
+        'nav_settings': '系统设置',
+        'status_active': '令牌已激活',
+        'status_missing': '令牌缺失',
+        
+        # Dashboard
+        'dash_title': '策略全景看板',
+        'dash_subtitle': '性能概览',
+        'dash_no_data': '暂无数据。请前往[选股实验室]运行策略，或[系统设置]更新数据。',
+        'kpi_stocks': '总回测股票',
+        'kpi_strategies': '策略数量',
+        'kpi_score': '最高评分',
+        'kpi_days': '数据天数',
+        'chart_title': '策略效能矩阵 (胜率 vs 收益率)',
+        'chart_missing_mpl': '缺少 matplotlib 库，无法显示高级样式。',
+        'table_title': '策略排行榜',
+        'activity_map': '选股热力图',
+        'activity_help': '每日选股数量统计 (颜色越深数量越多)',
+        
+        # Laboratory
+        'lab_title': '选股实验室',
+        'lab_subtitle': '选股与回测',
+        'tab_daily': '每日复盘',
+        'tab_exec': '运行选股',
+        
+        'sel_date': '选择日期',
+        'no_data_date': '{date} 暂无数据，请尝试运行选股。',
+        'metric_selected': '选出股票',
+        'metric_avg_ret': '平均收益',
+        'section_details': '详细数据',
+        
+        'run_title': '运行新策略',
+        'run_single_date': '目标日期',
+        'run_start_date': '开始日期',
+        'run_end_date': '结束日期',
+        'run_skip_existing': '跳过已执行日期',
+        'btn_run_single': '运行选股流程',
+        'btn_run_batch': '批量运行选股',
+        'log_running': '正在执行选股: {date}...',
+        'success_select': '选股完成，正在回测...',
+        'success_finish': '流程结束。请查看[每日复盘]标签页。',
+        'error_failed': '选股失败。',
+
+        # Backtest
+        'bt_title': '回测中心',
+        'bt_subtitle': '历史回测仿真',
+        'bt_select_logs': '选择待回测的日志',
+        'bt_table_date': '日期',
+        'bt_table_log': '选股日志',
+        'bt_table_result': '回测结果',
+        'bt_status_ready': '就绪',
+        'bt_status_done': '已完成',
+        'bt_status_missing_log': '无日志',
+        'bt_btn_run': '运行回测',
+        'bt_btn_select_pending': '全选未回测',
+        'bt_log_preview': '执行日志',
+        
+        # Settings
+        'set_title': '系统配置',
+        'set_subtitle': '数据与令牌',
+        'set_token_config': 'Tushare Token 配置',
+        'input_token': '输入 Token',
+        'btn_save_token': '保存令牌',
+        'msg_token_saved': '令牌已保存',
+        'set_update_data': '更新行情数据',
+        'set_update_desc': '基于前复权进行全量覆盖同步，仅更新下方指定日期范围的数据 (耗时较长)。',
+        'input_start': '开始日期',
+        'input_end': '结束日期',
+        'btn_fetch': '开始同步',
+        'msg_fetch_start': '正在后台启动同步进程... 请查看终端进度条。',
+        'msg_bg_start': '后台进程已启动！请查看 Logs。',
+        'set_workers': '并发线程数',
+        'set_workers_help': '建议：Tushare 免费账号选 1，付费账号选 6。',
+        'set_workers_low': '1 (安全/免费)',
+        'set_workers_high': '6 (高速/付费)',
+        'err_start_fail': '启动失败: {e}',
+    }
+}
+
+def get_text(lang, key, **kwargs):
+    """获取翻译文本"""
+    text = TRANSLATIONS.get(lang, TRANSLATIONS['EN']).get(key, key)
+    if kwargs:
+        return text.format(**kwargs)
+    return text

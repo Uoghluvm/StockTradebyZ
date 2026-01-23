@@ -189,13 +189,19 @@ def fetch_one(
         logger.error("%s 三次抓取均失败，已跳过！", code)
 
 # --------------------------- 主入口 --------------------------- #
-def main():
+    # ---------- 路径适配 ---------- #
+    current_dir = Path(__file__).resolve().parent
+    root_dir = current_dir.parent
+    
+    default_stocklist = root_dir / "config" / "stock_list.csv"
+    default_out = root_dir / "data"
+
     parser = argparse.ArgumentParser(description="从 stocklist.csv 读取股票池并用 Tushare 抓取日线K线（固定qfq，全量覆盖）")
     # 抓取范围
     parser.add_argument("--start", default="20190101", help="起始日期 YYYYMMDD 或 'today'")
     parser.add_argument("--end", default="today", help="结束日期 YYYYMMDD 或 'today'")
     # 股票清单与板块过滤
-    parser.add_argument("--stocklist", type=Path, default=Path("./stocklist.csv"), help="股票清单CSV路径（需含 ts_code 或 symbol）")
+    parser.add_argument("--stocklist", type=Path, default=default_stocklist, help="股票清单CSV路径（需含 ts_code 或 symbol）")
     parser.add_argument(
         "--exclude-boards",
         nargs="*",
@@ -204,7 +210,7 @@ def main():
         help="排除板块，可多选：gem(创业板300/301) star(科创板688) bj(北交所.BJ/4/8)"
     )
     # 其它
-    parser.add_argument("--out", default="./data", help="输出目录")
+    parser.add_argument("--out", default=str(default_out), help="输出目录")
     parser.add_argument("--workers", type=int, default=6, help="并发线程数")
     args = parser.parse_args()
 

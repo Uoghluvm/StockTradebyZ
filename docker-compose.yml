@@ -1,0 +1,15 @@
+version: "3.8"
+
+services:
+  web:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./results:/app/results
+      - ./.env:/app/.env
+    environment:
+      - TUSHARE_TOKEN=${TUSHARE_TOKEN}
+    restart: unless-stopped

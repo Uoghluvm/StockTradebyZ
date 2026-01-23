@@ -1,404 +1,62 @@
-# Z哥战法的 Python 实现（更新版）
+# StockTrade Swiss Lab 🇨🇭
 
-> **更新时间：2025-12-26** –
->
-> 新增 **BigBullishVolumeSelector（暴力K战法）**：用于捕捉放量启动、贴近短线均值的强势阳线；
+[English](README.md) | [简体中文](README_CN.md)
 
----
+Based on robust quantitative analysis, this project provides a professional and powerful stock strategy backtesting laboratory.
 
-## 目录
+## Core Features 🚀
 
-* [项目简介](#项目简介)
-* [快速上手](#快速上手)
-  * [环境与依赖](#环境与依赖)
-  * [准备 Tushare Token](#准备-tushare-token)
-  * [准备 stocklist.csv](#准备-stocklistcsv)
-  * [下载历史 K 线（qfq，日线）](#下载历史-k-线qfq日线)
-  * [运行选股](#运行选股)
-* [参数说明](#参数说明)
-  * [`fetch_kline.py`](#fetch_klinepy)
-  * [`select_stock.py`](#select_stockpy)
-  * [`SectorShift.py` (找机会)](#sectorshiftpy-找机会)
-  * [`find_stock...py` (做复盘)](#find_stock_by_price_concurrentpy-做复盘)
-* [内置策略 (Selector)](#内置策略selector)
-  * [1. 少妇战法](#1-bbikdjselector少妇战法)
-  * [2. SuperB1战法](#2-superb1selectorsuperb1战法)
-  * [3. 补票战法](#3-bbishortlongselector补票战法)
-  * [4. 填坑战法](#4-peakkdjselector填坑战法)
-  * [5. 上穿60放量战法](#5-ma60crossvolumewaveselector上穿60放量战法)
-  * [6. 暴力K战法](#6-bigbullishvolumeselector暴力k战法)
-* [项目结构](#项目结构)
-* [常见问题](#常见问题)
-* [免责声明](#免责声明)
+- **Strategy Dashboard**: Professional analytics interface with strict data visualization.
+- **Stock Laboratory**:
+  - **Batch Selection**: Run strategies across date ranges automatically.
+  - **Auto-Backtest**: Calculate 1/3/5/10-day returns instantly.
+- **Strategy Matrix**: Interactive bubble charts to find "High Win-Rate + High Return" strategies.
+- **Dual Language**: One-click switch between **English** and **简体中文**.
+- **Data Center**: Manage Tushare tokens and sync market data easily.
 
----
+## Quick Start (Docker) -> Recommended for New Users
 
-## 项目简介
-
-| 文件名 | 功能简介 |
-| :--- | :--- |
-| **`fetch_kline.py`** | 仅使用 **Tushare** 抓取 **A 股日线（前复权 qfq）**。支持排除板块，并发抓取，全量覆盖。 |
-| **`select_stock.py`** | 批量执行选股策略，输出结果到控制台与 `select_results.log`。 |
-| **`Selector.py`** | 策略核心逻辑库，包含 6 个经典战法的计算实现（含知行约束过滤）。 |
-| **`SectorShift.py`** | **找机会**：行业超卖统计，发现板块级别的底部机会。 |
-| **`find_stock...py`** | **做复盘**：并发价格搜索，快速定位历史支撑/压力位的标的。 |
-
----
-
-## 快速上手
-
-### 环境与依赖
-
-```bash
-# 创建环境（Python 3.12）
-conda create -n stocktest python=3.12 -y
-conda activate stocktest
-
-# 安装依赖
-pip install -r requirements.txt
-```
-
-> 关键依赖：`pandas`, `tqdm`, `tushare`, `numpy`, `scipy`, `python-dotenv`。
-
-### 准备 Tushare Token
-
-为了安全且方便地管理 Token，项目支持使用 `.env` 文件：
-
-1. 复制模板文件：
-
+1. **Install Docker Desktop**.
+2. **Run**:
    ```bash
-   cp .env.example .env
+   docker-compose up -d
+   ```
+3. **Open Browser**: Visit `http://localhost:8501`.
+
+## Manual Installation
+
+### Prerequisites
+- Python 3.10+
+- Tushare Token (Get it from [Tushare](https://tushare.pro/))
+
+### Steps
+1. **Clone repository**:
+   ```bash
+   git clone https://github.com/your-repo/StockTradebyZ.git
+   cd StockTradebyZ
+   ```
+2. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. **Start Web App**:
+   ```bash
+   streamlit run web/app.py
    ```
 
-2. 编辑 `.env` 文件，填入您的 Tushare Token：
-
-   ```text
-   TUSHARE_TOKEN=您的Token
-   ```
-
-*注意：`.env` 已被包含在 `.gitignore` 中，您的隐私数据不会被上传。*
-
-### 下载历史 K 线（qfq，日线）
-
-```bash
-python fetch_kline.py \
-  --start 20240101 \
-  --end today \
-  --stocklist ./stocklist.csv \
-  --exclude-boards gem star bj \
-  --out ./data \
-  --workers 6
-```
-
-* **数据源固定**：Tushare 日线，**前复权 qfq**。
-* **保存策略**：每只股票**全量覆盖写入** `./data/XXXXXX.csv`。
-* **并发抓取**：默认 6 线程；支持封禁冷却（命中「访问频繁/429/403…」将睡眠约 600s 并重试，最多 3 次）。
-
-### 运行选股
-
-```bash
-python select_stock.py \
-  --data-dir ./data \
-  --config ./configs.json \
-  --date 2025-09-10
-```
-
-> `--date` 可省略，默认取数据中的最后交易日。
-
----
-
-## 参数说明
-
-### `fetch_kline.py`
-
-| 参数                 | 默认值               | 说明                                                                         |
-| ------------------ | ----------------- | -------------------------------------------------------------------------- |
-| `--start`          | `20190101`        | 起始日期，格式 `YYYYMMDD` 或 `today`                                               |
-| `--end`            | `today`           | 结束日期，格式同上                                                                  |
-| `--stocklist`      | `./stocklist.csv` | 股票清单 CSV 路径（含 `ts_code` 或 `symbol`）                                        |
-| `--exclude-boards` | `[]`              | 排除板块，枚举：`gem`(创业板 300/301) / `star`(科创板 688) / `bj`(北交所 .BJ / 4/8 开头)。可多选。 |
-| `--out`            | `./data`          | 输出目录（自动创建）                                                                 |
-| `--workers`        | `6`               | 并发线程数                                                                      |
-
-**输出 CSV 列**：`date, open, close, high, low, volume`（按日期升序）。
-
-**抓取与重试**：每支股票最多 3 次尝试；疑似限流/封禁触发 **600s 冷却**；其它异常采用递进式短等候重试（15s×尝试次数）。
-
-### `select_stock.py`
-
-| 参数           | 默认值              | 说明       |
-| ------------ | ---------------- | -------- |
-| `--data-dir` | `./data`         | CSV 行情目录 |
-| `--config`   | `./configs.json` | 选择器配置    |
-| `--date`     | 数据最后交易日          | 选股交易日    |
-
-### `SectorShift.py` (找机会)
-
-用于分析行业板块的整体超卖情况：
-
-```bash
-python SectorShift.py \
-  --data_dir ./data \
-  --j_threshold 15 \
-  --trade_date 2025-09-10
-```
-
-* `--j_threshold`: J 值阈值，默认 15，越低代表超卖越严重。
-* `--trade_date`: 指定日期，不传则取最新日期。
-
-### `find_stock_by_price_concurrent.py` (做复盘)
-
-并发查找曾经到达过某个价位的股票：
-
-```bash
-python find_stock_by_price_concurrent.py \
-  --price 15.5 \
-  --type close \
-  --tolerance 0.01 \
-  --start 2024-01-01
-```
-
-* `--price`: 目标价格（核心参数）。
-* `--type`: 价格类型，可选 `close`, `high`, `low`。
-* `--tolerance`: 容差，0.01 代表目标价上下 1% 范围内。
-* `--workers`: 并发数，默认自动匹配核心数。
-
----
-
-## 内置策略（Selector）
-
-> **提示**：文中“窗口”均指交易日数量。实际实现均已替换为最新代码逻辑。
-
-### 1. BBIKDJSelector（少妇战法）
-
-核心逻辑：
-
-* **价格波动约束**：最近 `max_window` 根收盘价的波动（`high/low-1`）≤ `price_range_pct`；
-* **BBI 上升**：`bbi_deriv_uptrend`，允许一阶差分在 `bbi_q_threshold` 分位内为负（容忍回撤）；
-* **KDJ 低位**：当日 J 值 **< `j_threshold`** 或 **≤ 最近 `max_window` 的 `j_q_threshold` 分位**；
-* **MACD**：`DIF > 0`；
-* **MA60 条件**：当日 `close ≥ MA60` 且最近 `max_window` 内存在“**有效上穿 MA60**”；
-* **知行当日约束**：**收盘 > 长期线** 且 **短期线 > 长期线**。
-
-`configs.json` 预设（与示例一致）：
-
-```json
-{
-  "class": "BBIKDJSelector",
-  "alias": "少妇战法",
-  "activate": true,
-  "params": {
-    "j_threshold": 15,
-    "bbi_min_window": 20,
-    "max_window": 120,
-    "price_range_pct": 1,
-    "bbi_q_threshold": 0.2,
-    "j_q_threshold": 0.10
-  }
-}
-```
-
-### 2. SuperB1Selector（SuperB1战法）
-
-核心逻辑：
-
-1. 在 `lookback_n` 窗内，存在某日 `t_m` **满足 BBIKDJSelector**；
-2. 区间 `[t_m, 当日前一日]` 收盘价波动率 ≤ `close_vol_pct`；
-3. 当日相对前一日 **下跌 ≥ `price_drop_pct`**；
-4. 当日 J **< `j_threshold`** 或 **≤ `j_q_threshold` 分位**；
-5. **知行约束**：
-
-   * 在 `t_m` 当日：**收盘 > 长期线** 且 **短期线 > 长期线**；
-   * 在 **当日**：只需 **短期线 > 长期线**。
-
-`configs.json` 预设：
-
-```json
-{
-  "class": "SuperB1Selector",
-  "alias": "SuperB1战法",
-  "activate": true,
-  "params": {
-    "lookback_n": 10,
-    "close_vol_pct": 0.02,
-    "price_drop_pct": 0.02,
-    "j_threshold": 10,
-    "j_q_threshold": 0.10,
-    "B1_params": {
-      "j_threshold": 15,
-      "bbi_min_window": 20,
-      "max_window": 120,
-      "price_range_pct": 1,
-      "bbi_q_threshold": 0.3,
-      "j_q_threshold": 0.10
-    }
-  }
-}
-```
-
-### 3. BBIShortLongSelector（补票战法）
-
-核心逻辑：
-
-* **BBI 上升**（容忍回撤）；
-* 最近 `m` 日内：
-
-  * 长 RSV（`n_long`）**全 ≥ `upper_rsv_threshold`**；
-  * 短 RSV（`n_short`）出现“**先 ≥ upper，再 < lower**”的序列结构；
-  * 当日短 RSV **≥ upper**；
-* **MACD**：`DIF > 0`；
-* **知行当日约束**：**收盘 > 长期线** 且 **短期线 > 长期线**。
-
-`configs.json` 预设：
-
-```json
-{
-  "class": "BBIShortLongSelector",
-  "alias": "补票战法",
-  "activate": true,
-  "params": {
-    "n_short": 5,
-    "n_long": 21,
-    "m": 5,
-    "bbi_min_window": 2,
-    "max_window": 120,
-    "bbi_q_threshold": 0.2,
-    "upper_rsv_threshold": 75,
-    "lower_rsv_threshold": 25
-  }
-}
-```
-
-### 4. PeakKDJSelector（填坑战法）
-
-核心逻辑：
-
-* 基于 `open/close` 的 `oc_max` 寻找峰值（`scipy.signal.find_peaks`）；
-* 选择最新峰 `peak_t` 与其前方**有效参照峰** `peak_(t-n)`：要求 `oc_t > oc_(t-n)`，并确保区间内其它峰不“抬高门槛”；且 `oc_(t-n)` 必须 **高于区间最低收盘价 `gap_threshold`**；
-* 当日收盘与 `peak_(t-n)` 的波动率 ≤ `fluc_threshold`；
-* 当日 J **< `j_threshold`** 或 **≤ `j_q_threshold` 分位**；
-* **知行当日约束**：**收盘 > 长期线** 且 **短期线 > 长期线**。
-
-`configs.json` 预设：
-
-```json
-{
-  "class": "PeakKDJSelector",
-  "alias": "填坑战法",
-  "activate": true,
-  "params": {
-    "j_threshold": 10,
-    "max_window": 120,
-    "fluc_threshold": 0.03,
-    "j_q_threshold": 0.10,
-    "gap_threshold": 0.2
-  }
-}
-```
-
-### 5. MA60CrossVolumeWaveSelector（上穿60放量战法）
-
-核心逻辑：
-
-1. 当日 J **< `j_threshold`** 或 **≤ `j_q_threshold` 分位**；
-2. 最近 `lookback_n` 内存在**有效上穿 MA60**；
-3. 以上穿日 `T` 到当日区间内 **High 最大日** 作为 `Tmax`，定义上涨波段 `[T, Tmax]`，其 **平均成交量 ≥ `vol_multiple` × 上穿前等长或截断窗口的平均量**；
-4. `MA60` 的最近 `ma60_slope_days` 日 **回归斜率 > 0**；
-5. **知行当日约束**：**收盘 > 长期线** 且 **短期线 > 长期线**。
-
-`configs.json` 预设：
-
-```json
-{
-  "class": "MA60CrossVolumeWaveSelector",
-  "alias": "上穿60放量战法",
-  "activate": true,
-  "params": {
-    "lookback_n": 25,
-    "vol_multiple": 1.8,
-    "j_threshold": 15,
-    "j_q_threshold": 0.10,
-    "ma60_slope_days": 5,
-    "max_window": 120
-  }
-}
-```
-
-> **已移除**：`BreakoutVolumeKDJSelector（TePu 战法）`。
-
-### 6. BigBullishVolumeSelector（暴力K战法）
-
-核心逻辑：
-
-1. **当日为长阳**：  
-   当日涨幅 `(close / prev_close - 1)` **大于 `up_pct_threshold`**；
-
-2. **上影线短**：  
-   上影线比例  
-   \[
-   \frac{High - \max(Open, Close)}{\max(Open, Close)}
-   \]
-   **小于 `upper_wick_pct_max`**，用于过滤冲高回落型假阳线；
-
-3. **放量突破**：  
-   当日成交量  
-   \[
-   Volume_{today} \ge vol\_multiple \times \text{前 } n \text{ 日均量}
-   \]
-
-4. **贴近知行短线（不过热）**：  
-   计算 `ZXDQ = EMA(EMA(C,10),10)`，要求  
-   \[
-   Close < ZXDQ \times close\_lt\_zxdq\_mult
-   \]  
-   用于过滤已经明显脱离短线均值、过度加速的股票。
-
-5. （可选）**收阳约束**：`close ≥ open`。
-
-该策略意在捕捉：
-> **“刚刚放量启动的强势阳线，但尚未远离短期均线、仍具延续空间的个股”。**
-
----
-
-`configs.json` 预设：
-
-    "vol_multiple": 2.5
-  }
-}
-
-```
-
-```text
-.
-├── configs.json             # 选择器参数配置
-├── fetch_kline.py           # 数据抓取工具 (Tushare)
-├── select_stock.py          # 选股运行入口
-├── SectorShift.py           # 行业分析工具 (找机会)
-├── find_stock_by_price...   # 价格回溯工具 (做复盘)
-├── Selector.py              # 策略逻辑核心库
-├── stocklist.csv            # 股票池定义
-├── .env                     # Token 配置文件 (Git已忽略)
-├── data/                    # 行情数据存储目录
-└── logs/                    # 日志文件 (fetch.log, select.log等)
-```
-
----
-
-## 常见问题
-
-**Q1：为什么抓取会“卡住很久”？**
-可能命中 Tushare 频控或网络封禁。脚本检测到典型关键字（如“访问频繁/429/403”）时，会进入\*\*长冷却（默认 600s）\*\*再重试。
-
-**Q2：为什么不做增量合并？**
-考虑采用增量更新会遇到前复权的问题，本版选择**每次全量覆盖写入**。
-
-**Q3：创业板/科创板/北交所如何排除？**
-运行时使用 `--exclude-boards gem star bj`，或按需选择其一/其二。
-
----
-
-## 免责声明
-
-* 本仓库仅供学习与技术研究之用，**不构成任何投资建议**。股市有风险，入市需谨慎。
-* 数据来源与接口可能随平台策略调整而变化，请合法合规使用。
-* 致谢 **@Zettaranc** 在 Bilibili 的无私分享：[https://b23.tv/JxIOaNE](https://b23.tv/JxIOaNE)
+## Architecture
+
+- **Frontend**: Streamlit + Custom CSS Injection
+- **Backend Scripts**:
+  - `scripts/select_stock.py`: Strategy execution core.
+  - `scripts/backtest.py`: Profit calculation engine.
+  - `scripts/fetch_kline.py`: Data synchronization.
+- **Data Storage**:
+  - `logs/`: Selection logs.
+  - `results/`: Backtest CSV reports.
+  - `data/`: Raw K-line data.
+
+## Credits
+
+Designed by **Antigravity**. 
+Powered by Python, Pandas, and Plotly.

@@ -1,6 +1,20 @@
-*.csv
-*.log
+# Data & Logs
 data/
+logs/
+results/
+*.log
+
+# Python
 __pycache__/
-.env
 .conda_env
+.env
+.venv
+venv/
+
+# Ignore all CSVs by default (results) but keep config files
+*.csv
+!stocklist.csv
+!results/策略评测报告_汇总.csv
+
+# System
+.DS_Store
