@@ -18,12 +18,8 @@ sys.path.append(str(root_dir))
 from src.strategy import SelectorFactory, precompute_indicators
 
 # ---------- 日志 ----------
-def setup_logging(date_str: str):
-    # Logs 目录位于根目录
-    log_dir = root_dir / "logs"
-    log_dir.mkdir(exist_ok=True)
-    
-    log_filename = log_dir / f"{date_str}选股.log"
+def setup_logging():
+    """初始化日志，仅输出到控制台"""
     # 清除之前的 handlers 以免重复打印
     for handler in logging.root.handlers[:]:
         logging.root.removeHandler(handler)
@@ -33,7 +29,6 @@ def setup_logging(date_str: str):
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
             logging.StreamHandler(sys.stdout),
-            logging.FileHandler(str(log_filename), encoding="utf-8", mode="w"),
         ],
     )
     return logging.getLogger("select")
@@ -155,9 +150,8 @@ def main():
             # 如果都没有数据，缺省为今天
             trade_date = pd.Timestamp.now().normalize()
     
-    # --- 初始化日志 (包含日期) ---
-    date_str = trade_date.strftime("%Y-%m-%d")
-    logger = setup_logging(date_str)
+    # --- 初始化日志 ---
+    logger = setup_logging()
 
     if not args.date:
         logger.info("未指定 --date，使用最近日期 %s", date_str)

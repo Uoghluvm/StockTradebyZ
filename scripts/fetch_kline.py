@@ -23,13 +23,11 @@ load_dotenv()
 warnings.filterwarnings("ignore")
 
 # --------------------------- 全局日志配置 --------------------------- #
-LOG_FILE = Path("fetch.log")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8"),
     ],
 )
 logger = logging.getLogger("fetch_from_stocklist")
