@@ -36,12 +36,48 @@ def T(key, **kwargs):
 # ---------- 工具函数 ----------
 
 @st.cache_data
-def load_summary():
-    """加载策略评测报告"""
+def load_summary(file_mtime: float = 0):
+    """加载策略评测报告 (参数 file_mtime 用于缓存刷新)"""
     file_path = Path("results/策略评测报告_汇总.csv")
     if file_path.exists():
         return pd.read_csv(file_path)
     return pd.DataFrame()
+
+def get_summary_with_refresh():
+    """获取策略报告，自动根据文件修改时间刷新缓存"""
+    file_path = Path("results/策略评测报告_汇总.csv")
+    mtime = file_path.stat().st_mtime if file_path.exists() else 0
+    return load_summary(mtime)
+
+@st.cache_data
+def get_index_stats(code):
+    """获取指数统计信息 (Sharpe, WR, Score)"""
+    try:
+        p = Path(f"data_parquet/{code}.parquet")
+        if p.exists():
+            df = pd.read_parquet(p, columns=['date', 'close'])
+            df['pct_change'] = df['close'].pct_change() * 100
+            df = df.dropna()
+            # 仅取最近1年
+            min_d = df['date'].max() - timedelta(days=365)
+            df = df[df['date'] >= min_d]
+            
+            if df.empty: return None
+            
+            ret_mean = df['pct_change'].mean()
+            ret_std = df['pct_change'].std()
+            win_rate = (df['pct_change'] > 0).sum() / len(df)
+            
+            sharpe = ret_mean / ret_std if ret_std > 0 else 0
+            score = sharpe * win_rate
+            
+            return {
+                "sharpe": sharpe,
+                "win_rate": win_rate * 100,
+                "score": score
+            }
+    except:
+        return None
 
 def get_logs_dates():
     """获取 logs/ 目录下所有的日志日期"""
@@ -327,7 +363,7 @@ st.sidebar.markdown("### NAVIGATION")
 
 page = st.sidebar.radio(
     "Go to", 
-    ["DASHBOARD", "LABORATORY", "BACKTEST", "SETTINGS"], 
+    ["DASHBOARD", "LABORATORY", "SIMULATION", "BACKTEST", "SETTINGS"], 
     format_func=lambda x: T(f'nav_{x.lower()}'),
     label_visibility="collapsed"
 )
@@ -348,7 +384,10 @@ else:
 if page == "DASHBOARD":
     swiss_header(T('dash_title'), T('dash_subtitle'))
     
-    summary_df = load_summary()
+    summary_df = get_summary_with_refresh()
+    
+    hs300 = get_index_stats('000300')
+    zz1000 = get_index_stats('000852')
     
     if summary_df.empty:
         st.info(T('dash_no_data'))
@@ -360,6 +399,57 @@ if page == "DASHBOARD":
         col3.metric(T('kpi_score'), f"{summary_df.iloc[0]['综合得分']:.1f}")
         col4.metric(T('kpi_days'), f"{len(get_logs_dates())}")
         
+        st.markdown("---")
+        
+        # 0. 市场指数走势
+        st.markdown(f"##### {'市场大盘走势' if st.session_state['language'] == 'CN' else 'Market Index Trend'}")
+        
+        @st.cache_data
+        def load_index_data():
+            indices = {
+                '000300': '沪深300 (CSI300)',
+                '000852': '中证1000 (CSI1000)'
+            }
+            dfs = []
+            for code, name in indices.items():
+                p = Path(f"data_parquet/{code}.parquet")
+                if p.exists():
+                    try:
+                        df = pd.read_parquet(p, columns=['date', 'close'])
+                        df['date'] = pd.to_datetime(df['date'])
+                        df['name'] = name
+                        df = df.sort_values('date')
+                        # 仅保留最近1年
+                        min_d = df['date'].max() - timedelta(days=365)
+                        df = df[df['date'] >= min_d].copy()
+                        
+                        if not df.empty:
+                            first_close = df.iloc[0]['close']
+                            df['pct_change'] = (df['close'] - first_close) / first_close * 100
+                            dfs.append(df)
+                    except:
+                        pass
+            if dfs:
+                return pd.concat(dfs, ignore_index=True)
+            return pd.DataFrame()
+
+        index_df = load_index_data()
+        if not index_df.empty:
+            fig_idx = px.line(index_df, x='date', y='pct_change', color='name', labels={'pct_change': '涨跌幅 (%)', 'date': '日期'}, height=300)
+            fig_idx.update_layout(
+                margin=dict(l=0, r=0, t=30, b=0),
+                legend=dict(orientation="h", y=1.05, yanchor="bottom", x=0, xanchor="left"),
+                hovermode="x unified",
+                title="",
+                plot_bgcolor="white",
+                paper_bgcolor="white"
+            )
+            fig_idx.update_xaxes(showgrid=True, gridcolor='#eee')
+            fig_idx.update_yaxes(showgrid=True, gridcolor='#eee', zeroline=True, zerolinecolor='black')
+            st.plotly_chart(fig_idx, use_container_width=True)
+        else:
+            st.caption("暂无指数数据，请在终端运行: `python scripts/fetch_kline.py --index`")
+
         st.markdown("---")
         
         # Activity Map
@@ -377,110 +467,97 @@ if page == "DASHBOARD":
         try:
             fig = px.scatter(
                 summary_df,
-                x="收盘_胜率%",
-                y="收盘_5日均%",
-                size="总荐股数",
-                color="策略",
-                hover_name="策略",
-                hover_data=["最佳周期", "最佳均收"],
-                height=500,
-                color_discrete_sequence=px.colors.qualitative.Dark24
+                x="收盘_胜率%", y="收盘_5日均%", size="总荐股数", color="策略",
+                hover_name="策略", hover_data=["最佳周期", "最佳均收"],
+                height=500, color_discrete_sequence=px.colors.qualitative.Dark24
             )
-            # Swiss Style Customization
-            fig.update_layout(
-                title="",  # Explicitly set empty title to prevent undefined
-                plot_bgcolor="white",
-                paper_bgcolor="white",
-                font_family="Inter",
-            )
-            fig.update_xaxes(showgrid=True, gridcolor='#eee', zerolinecolor='black')
-            fig.update_yaxes(showgrid=True, gridcolor='#eee', zerolinecolor='black')
+            fig.update_layout(title="", plot_bgcolor="white", paper_bgcolor="white", font_family="Inter")
+            
+            # 坐标轴优化
+            min_win = max(40, summary_df['收盘_胜率%'].min() - 5)
+            min_ret = min(0, summary_df['收盘_5日均%'].min() - 1)
+            max_ret = summary_df['收盘_5日均%'].max() + 1
+            
+            fig.update_xaxes(range=[40, 105], title="胜率 (%)", showgrid=True, gridcolor='#eee', zeroline=True, zerolinecolor='black')
+            fig.update_yaxes(range=[min_ret, max_ret] if min_ret < 0 else [0, max_ret], title="5日均收益 (%)", showgrid=True, gridcolor='#eee', zeroline=True, zerolinecolor='black')
+            
+            fig.add_vline(x=50, line_dash="dash", line_color="gray", opacity=0.5)
+            fig.add_hline(y=0, line_dash="solid", line_color="black", opacity=0.1)
+            
             st.plotly_chart(fig, use_container_width=True)
         except ImportError:
             st.error(T('chart_missing_mpl'))
-
+            
         # 3. Table
         st.markdown(f"### {T('table_title')}")
-        
-        # 列名映射和说明 - 让数据更易读
         column_config = {
-            "策略": st.column_config.TextColumn(
-                "策略名称" if st.session_state['language'] == 'CN' else "Strategy",
-                help="选股策略组合名称"
-            ),
-            "总荐股数": st.column_config.NumberColumn(
-                "样本数" if st.session_state['language'] == 'CN' else "Samples",
-                help="该策略在回测期间总共推荐的股票数量",
-                format="%d"
-            ),
-            "收盘_5日均%": st.column_config.NumberColumn(
-                "5日收益%" if st.session_state['language'] == 'CN' else "5D Ret%",
-                help="以收盘价买入，持有5日后的平均收益率",
-                format="%.2f%%"
-            ),
-            "开盘_5日均%": st.column_config.NumberColumn(
-                "5日收益%(开)" if st.session_state['language'] == 'CN' else "5D Ret%(O)",
-                help="以次日开盘价买入，持有5日后的平均收益率",
-                format="%.2f%%"
-            ),
-            "收盘收益_1日(%)_mean": st.column_config.NumberColumn(
-                "1日%" if st.session_state['language'] == 'CN' else "1D%",
-                help="持有1日平均收益",
-                format="%.2f%%"
-            ),
-            "收盘收益_2日(%)_mean": st.column_config.NumberColumn(
-                "2日%" if st.session_state['language'] == 'CN' else "2D%",
-                help="持有2日平均收益",
-                format="%.2f%%"
-            ),
-            "收盘收益_3日(%)_mean": st.column_config.NumberColumn(
-                "3日%" if st.session_state['language'] == 'CN' else "3D%",
-                help="持有3日平均收益",
-                format="%.2f%%"
-            ),
-            "收盘收益_5日(%)_mean": st.column_config.NumberColumn(
-                "5日%" if st.session_state['language'] == 'CN' else "5D%",
-                help="持有5日平均收益",
-                format="%.2f%%"
-            ),
-            "收盘收益_10日(%)_mean": st.column_config.NumberColumn(
-                "10日%" if st.session_state['language'] == 'CN' else "10D%",
-                help="持有10日平均收益",
-                format="%.2f%%"
-            ),
-            "最佳周期": st.column_config.TextColumn(
-                "最佳持仓" if st.session_state['language'] == 'CN' else "Best Hold",
-                help="收益最高的持有天数"
-            ),
-            "最佳均收": st.column_config.NumberColumn(
-                "最佳收益%" if st.session_state['language'] == 'CN' else "Best Ret%",
-                help="最佳持有周期对应的平均收益率",
-                format="%.2f%%"
-            ),
-            "周期详情": st.column_config.TextColumn(
-                "各周期收益" if st.session_state['language'] == 'CN' else "Period Details",
-                help="1日/2日/3日/5日/10日各周期的平均收益率",
-                width="large"
-            ),
-            "收盘_胜率%": st.column_config.NumberColumn(
-                "胜率%" if st.session_state['language'] == 'CN' else "Win Rate%",
-                help="正收益股票数量 ÷ 总推荐数量 × 100%",
-                format="%.1f%%"
-            ),
-            "综合得分": st.column_config.NumberColumn(
-                "综合评分" if st.session_state['language'] == 'CN' else "Score",
-                help="胜率 × 0.4 + 5日平均收益 × 0.6 的综合评价指标",
-                format="%.1f"
-            ),
+            "策略": st.column_config.TextColumn("策略名称" if st.session_state['language'] == 'CN' else "Strategy", help="选股策略组合名称"),
+            "总荐股数": st.column_config.NumberColumn("样本数" if st.session_state['language'] == 'CN' else "Samples", help="该策略在回测期间总共推荐的股票数量", format="%d"),
+            "收盘_5日均%": st.column_config.NumberColumn("5日收益%" if st.session_state['language'] == 'CN' else "5D Ret%", help="以收盘价买入，持有5日后的平均收益率", format="%.2f%%"),
+            "开盘_5日均%": st.column_config.NumberColumn("5日收益%(开)" if st.session_state['language'] == 'CN' else "5D Ret%(O)", help="以次日开盘价买入，持有5日后的平均收益率", format="%.2f%%"),
+            "收盘收益_1日(%)_mean": st.column_config.NumberColumn("1日%" if st.session_state['language'] == 'CN' else "1D%", format="%.2f%%"),
+            "收盘收益_2日(%)_mean": st.column_config.NumberColumn("2日%" if st.session_state['language'] == 'CN' else "2D%", format="%.2f%%"),
+            "收盘收益_3日(%)_mean": st.column_config.NumberColumn("3日%" if st.session_state['language'] == 'CN' else "3D%", format="%.2f%%"),
+            "收盘收益_5日(%)_mean": st.column_config.NumberColumn("5日%" if st.session_state['language'] == 'CN' else "5D%", format="%.2f%%"),
+            "收盘收益_10日(%)_mean": st.column_config.NumberColumn("10日%" if st.session_state['language'] == 'CN' else "10D%", format="%.2f%%"),
+            "最佳周期": st.column_config.TextColumn("最佳持仓" if st.session_state['language'] == 'CN' else "Best Hold", help="收益最高的持有天数"),
+            "最佳均收": st.column_config.NumberColumn("最佳收益%" if st.session_state['language'] == 'CN' else "Best Ret%", format="%.2f%%"),
+            "周期详情": st.column_config.TextColumn("各周期收益" if st.session_state['language'] == 'CN' else "Period Details", width="large"),
+            "收盘_胜率%": st.column_config.NumberColumn("胜率%" if st.session_state['language'] == 'CN' else "Win Rate%", format="%.1f%%"),
+            "收益标准差": st.column_config.NumberColumn("波动率(σ)" if st.session_state['language'] == 'CN' else "Volatility(σ)", help="收益率的标准差", format="%.2f"),
+            "夏普比率": st.column_config.NumberColumn("夏普比率" if st.session_state['language'] == 'CN' else "Sharpe Ratio", help="平均收益 ÷ 标准差", format="%.2f"),
+            "综合得分": st.column_config.NumberColumn("综合评分" if st.session_state['language'] == 'CN' else "Score", help="夏普比率 × 胜率调整因子", format="%.2f"),
         }
+        st.dataframe(summary_df, use_container_width=True, column_config=column_config, hide_index=True)
         
-        st.dataframe(
-            summary_df, 
-            use_container_width=True,
-            column_config=column_config,
-            hide_index=True
-        )
+        # 4. Distribution Chart
+        st.markdown("---")
+        st.markdown(f"### {'策略收益分布' if st.session_state['language'] == 'CN' else 'Return Distribution'}")
+        
+        @st.cache_data
+        def load_all_backtest_results():
+            results_dir = Path("results")
+            all_dfs = []
+            for f in results_dir.glob("回测结果_*.csv"):
+                try:
+                    df = pd.read_csv(f)
+                    all_dfs.append(df)
+                except: pass
+            return pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame()
+        
+        all_results = load_all_backtest_results()
+        if not all_results.empty and '策略' in all_results.columns:
+            strategies = all_results['策略'].unique().tolist()
+            selected_strategy = st.selectbox("选择策略" if st.session_state['language'] == 'CN' else "Select Strategy", strategies, index=0)
+            
+            if selected_strategy:
+                strat_data = all_results[all_results['策略'] == selected_strategy]
+                ret_col = '收盘买入收益率(%)'
+                if ret_col in strat_data.columns:
+                    returns = strat_data[ret_col].dropna()
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("样本数", f"{len(returns)}")
+                    col2.metric("均值", f"{returns.mean():.2f}%")
+                    col3.metric("标准差", f"{returns.std():.2f}")
+                    col4.metric("夏普", f"{returns.mean() / returns.std():.2f}" if returns.std() > 0 else "N/A")
+                    
+                    fig = px.histogram(returns, nbins=30, title=f"{selected_strategy} - 5日收益分布", labels={'value': '收益率(%)', 'count': '频数'}, color_discrete_sequence=['#4CAF50'])
+                    fig.add_vline(x=0, line_dash="dash", line_color="red", annotation_text="零线")
+                    fig.add_vline(x=returns.mean(), line_dash="dot", line_color="blue", annotation_text=f"均值:{returns.mean():.1f}%")
+                    fig.update_layout(showlegend=False, height=350, plot_bgcolor="white", paper_bgcolor="white")
+                    st.plotly_chart(fig, use_container_width=True)
 
+        # 5. Scoring Formula
+        st.markdown("---")
+        with st.expander(T('score_formula_title'), expanded=False):
+            st.markdown(T('score_formula_desc'))
+            st.latex(r'''Score = Sharpe \times \frac{WinRate\%}{100} = \frac{AvgReturn}{StdDev} \times \frac{WinCount}{TotalCount}''')
+            st.info("注：由于夏普比率本身数值较小（通常在0-3之间），综合评分通常小于1。评分越高越好。")
+            if hs300 and zz1000:
+                st.markdown("**从最近一年起的基准表现 (Benchmark):**")
+                b1, b2 = st.columns(2)
+                b1.metric("沪深300 (CSI300)", f"Score: {hs300['score']:.4f}", f"Sharpe: {hs300['sharpe']:.2f} | WR: {hs300['win_rate']:.1f}%")
+                b2.metric("中证1000 (CSI1000)", f"Score: {zz1000['score']:.4f}", f"Sharpe: {zz1000['sharpe']:.2f} | WR: {zz1000['win_rate']:.1f}%")
 
 elif page == "LABORATORY":
     swiss_header(T('lab_title'), T('lab_subtitle'))
@@ -648,6 +725,335 @@ elif page == "LABORATORY":
                 else:
                     st.error("❌ Batch processing failed")
 
+
+elif page == "SIMULATION":
+    swiss_header(T('sim_title'), T('sim_subtitle'))
+    
+    # 1. Settings
+    with st.container():
+        st.markdown(f"##### {T('sim_settings')}")
+        c1, c2, c3 = st.columns(3)
+        init_capital = c1.number_input(T('sim_capital'), value=1000000, step=100000)
+        hold_period = c2.number_input(T('sim_period'), value=10, min_value=1)
+        
+        # Get strategies from logs or summary
+        summary_df = get_summary_with_refresh()
+        strategies = summary_df['策略'].unique().tolist() if not summary_df.empty else []
+        target_strat = c3.selectbox(T('sim_strategy'), strategies)
+        
+        # Date Range Selection
+        available_dates = get_logs_dates()
+        min_date = available_dates[0] if available_dates else date.today()
+        max_date = date.today()
+        
+        c4, c5 = st.columns(2)
+        start_date_input = c4.date_input("Start Date", value=min_date, min_value=date(2020, 1, 1), max_value=max_date)
+        end_date_input = c5.date_input("End Date", value=max_date, min_value=date(2020, 1, 1), max_value=max_date)
+
+    if st.button(T('sim_run'), type="primary", disabled=not strategies):
+        # 2. Simulation Logic
+        status_text = st.empty()
+        progress_bar = st.progress(0)
+        
+        status_text.text("Loading logs...")
+        
+        # A. Load all relevant logs
+        logs_dir = Path("logs")
+        log_files = sorted(list(logs_dir.glob("*选股.csv")))
+        
+        signals = {} # Date -> [Codes]
+        
+        for f in log_files:
+            try:
+                date_str = f.stem.replace("选股", "") # YYYY-MM-DD
+                d = datetime.strptime(date_str, "%Y-%m-%d").date()
+                
+                # Filter by date range
+                if d < start_date_input or d > end_date_input:
+                    continue
+                
+                df_log = pd.read_csv(f, dtype=str, encoding='utf-8-sig') # Handle BOM
+                
+                # Map Chinese columns
+                col_map = {
+                    '代码': 'code',
+                    'symbol': 'code',
+                    'ts_code': 'code',
+                    '策略': 'strategies',
+                    'strategy': 'strategies'
+                }
+                df_log = df_log.rename(columns=col_map)
+                
+                # Normalize code
+                if 'code' in df_log.columns:
+                     # Remove .SZ/.SH if present
+                    df_log['code'] = df_log['code'].astype(str).str.split('.').str[0].str.zfill(6)
+                
+                if 'code' in df_log.columns and 'strategies' in df_log.columns:
+                    # Filter for strategy
+                    df_strat = df_log[df_log['strategies'].astype(str).str.contains(target_strat, regex=False)]
+                    codes = df_strat['code'].tolist()
+                    if codes:
+                        signals[d] = codes
+            except Exception as e:
+                pass
+        
+        if not signals:
+            st.warning(T('sim_no_logs'))
+        else:
+            # Sort dates
+            sorted_dates = sorted(signals.keys())
+            # Use user selected range (though signals are already filtered, simulation timeline should match)
+            start_date = start_date_input
+            end_date = end_date_input
+            
+            status_text.text(f"Simulating range: {start_date} -> {end_date}")
+
+            
+            # Load Index for Benchmark (HS300)
+            bm_df = pd.DataFrame()
+            try:
+                bm_df = pd.read_parquet("data_parquet/000300.parquet", columns=['date', 'open', 'close'])
+                bm_df['date'] = pd.to_datetime(bm_df['date']).dt.date
+                bm_df = bm_df.sort_values('date').set_index('date')
+            except:
+                pass
+
+            # B. Portfolio Simulation
+            # Rules:
+            # - T: Generate Signal
+            # - T+1: Buy at Open
+            # - T+1+HoldDays: Sell at Close
+            # - Allocation: Divide capital into (HoldDays + 2) parts to ensure liquidity
+            
+            cash = init_capital
+            positions = {} # Code -> {shares, cost, buy_date}
+            total_assets = [] # [{date, value}]
+            
+            # Create full timeline
+            timeline = pd.date_range(start_date, end_date, freq='B').date
+            
+            # Cache stock data to avoid repeated reads
+            stock_cache = {}
+            
+            def get_stock_price(code, d):
+                if code not in stock_cache:
+                    p = Path(f"data_parquet/{code}.parquet")
+                    if p.exists():
+                        try:
+                            df = pd.read_parquet(p, columns=['date', 'open', 'close'])
+                            df['date'] = pd.to_datetime(df['date']).dt.date
+                            stock_cache[code] = df.set_index('date')
+                        except:
+                            stock_cache[code] = pd.DataFrame()
+                    else:
+                        stock_cache[code] = pd.DataFrame()
+                
+                df = stock_cache[code]
+                if d in df.index:
+                    return df.loc[d]
+                return None
+
+            allocation_per_slot = init_capital / (hold_period * 1.5) # Conservative allocation
+            
+            for i, today in enumerate(timeline):
+                progress_bar.progress(min(i / len(timeline), 1.0))
+                status_text.text(f"Processing {today}...")
+                
+                # 1. Update Positions & Check Sell
+                current_pos_val = 0
+                to_remove = []
+                
+                for code, pos in positions.items():
+                    price_data = get_stock_price(code, today)
+                    
+                    if price_data is not None:
+                        current_price = price_data['close']
+                        days_held = (today - pos['buy_date']).days
+                        # Wait, trading days diff would be better, but simple days is ok for sim
+                        
+                        # Sell Logic
+                        if days_held >= hold_period:
+                            # Sell at Close
+                            cash += pos['shares'] * current_price
+                            to_remove.append(code)
+                        else:
+                            current_pos_val += pos['shares'] * current_price
+                    else:
+                        # No data today (suspended?), keep last value (approx) or 0? 
+                        # Use cost as proxy if suspended
+                        current_pos_val += pos['shares'] * pos['cost'] # Simplified
+                
+                for c in to_remove:
+                    del positions[c]
+                    
+                # 2. Check Buy (Signals from T-1? Or T? user said "Next day open")
+                # So if signal is on T-1 (yesterday), we buy Today Open
+                
+                # Get signals from Yesterday (or previous trading day in logs)
+                # Since 'signals' dict uses log date (which is usually signal date),
+                # We need to find if there was a signal yesterday?
+                # Actually, iterate days. If 'today' is T, we check signals from T-1.
+                # But timeline is business days.
+                
+                # Simplified: Loop through past dates in signals that match (today - 1_day)?
+                # Or just check if today is a trading day and buy based on "pending signals".
+                
+                # Let's say: Signal produced on Date X. Execution on Date X+1 (if trading day).
+                prev_day = today - timedelta(days=1)
+                # Find closest signal date <= prev_day? 
+                # Actually, simplest is: Check if (today - 1) in signals?
+                # But weekends exist.
+                
+                # Better approach: Iterate signals. If signal_date == prev_trading_day -> Buy Today.
+                # However, we are iterating days.
+                
+                # Let's check if there are signals with date < today that haven't been processed?
+                # No, just check specific previous day is tricky.
+                # Let's look up signals for (today - gap).
+                # But gap varies.
+                
+                # Workaround: Check signals for yesterday, day before yesterday... up to 5 days?
+                # Only if not bought yet.
+                # Actually, strict T+1 means: if Signal on Fri, Buy on Mon.
+                
+                # Let's try: Check signals[today] -> Queue for purchase Next Day?
+                # Yes.
+                # But this loop is "Today". So we check "Queue".
+                
+                pass 
+                
+            # Re-implement loop with Queue
+            cash = init_capital
+            positions = {}
+            queue = [] # (code, signal_date)
+            
+            history_equity = []
+            
+            # Align timeline with signals
+            # Merge signals keys into timeline to ensure we cover all signal days
+            all_days = sorted(list(set(list(timeline) + list(signals.keys()))))
+            start_idx = 0
+            # Find start index
+            for idx, d in enumerate(all_days):
+                if d >= start_date:
+                    start_idx = idx
+                    break
+            
+            sim_dates = all_days[start_idx:]
+            
+            for i, today in enumerate(sim_dates):
+                progress_bar.progress(min(i / len(sim_dates), 1.0))
+                
+                # 1. Process Buy Queue (from previous signal)
+                new_queue = []
+                for code in queue:
+                    # Try buy at Open
+                    price_data = get_stock_price(code, today)
+                    if price_data is not None:
+                        open_price = price_data['open']
+                        if open_price > 0 and cash > allocation_per_slot:
+                            # Buy
+                            shares = int(allocation_per_slot / open_price / 100) * 100
+                            if shares > 0:
+                                cost = shares * open_price
+                                cash -= cost
+                                positions[code] = {'shares': shares, 'cost': open_price, 'buy_date': today, 'last_price': open_price}
+                    else:
+                        # Keep in queue for next day? Or discard?
+                        # Usually discard if not actionable immediately to avoid piling up
+                        pass
+                queue = [] # Clear queue, unprocessed are dropped (strict timing)
+                
+                # 2. Update Position Values & Check Sell
+                pos_val = 0
+                to_sell = []
+                for code, pos in positions.items():
+                    price_data = get_stock_price(code, today)
+                    price = pos['last_price']
+                    
+                    if price_data is not None:
+                        price = price_data['close']
+                        positions[code]['last_price'] = price
+                        
+                        # Check exit
+                        # Hold period check (Trading days vs Calendar days?)
+                        # User said "Hold 10 days". Usually calendar days or N trading bars.
+                        # Let's use Calendar days for simplicity.
+                        if (today - pos['buy_date']).days >= hold_period:
+                            to_sell.append(code)
+                    
+                    pos_val += pos['shares'] * price
+                
+                # Process Sells
+                for code in to_sell:
+                    # Sell at Close price of today
+                    p = positions[code]
+                    cash += p['shares'] * p['last_price']
+                    # Remove from pos_val (it's now cash)
+                    pos_val -= p['shares'] * p['last_price']
+                    del positions[code]
+                
+                total_equity = cash + pos_val
+                
+                # Benchmark return
+                bm_ret = 0
+                if not bm_df.empty and today in bm_df.index:
+                    # Relative to start
+                    # Look up start price?
+                    pass 
+                
+                history_equity.append({'date': today, 'equity': total_equity})
+                
+                # 3. Add Today's Signals to Queue (for tomorrow)
+                if today in signals:
+                    for code in signals[today]:
+                        # Avoid buying if already held
+                        if code not in positions:
+                            queue.append(code)
+            
+            # C. Visualisation
+            res_df = pd.DataFrame(history_equity)
+            if not res_df.empty:
+                res_df['date'] = pd.to_datetime(res_df['date'])
+                
+                # Calculate metrics
+                final_equity = res_df.iloc[-1]['equity']
+                total_ret_pct = (final_equity - init_capital) / init_capital * 100
+                res_df['dd'] = (res_df['equity'].cummax() - res_df['equity']) / res_df['equity'].cummax() * 100
+                max_dd = res_df['dd'].max()
+                
+                st.markdown(f"### {T('sim_result')}")
+                m1, m2, m3 = st.columns(3)
+                m1.metric(T('sim_final_asset'), f"¥{final_equity:,.0f}")
+                m2.metric(T('sim_total_ret'), f"{total_ret_pct:+.2f}%")
+                m3.metric(T('sim_max_dd'), f"{max_dd:.2f}%", delta_color="inverse")
+                
+                st.markdown("#### 资金曲线 (Net Value)")
+                # Add benchmark to chart
+                chart_df = res_df[['date', 'equity']].copy()
+                chart_df['Strategy'] = (chart_df['equity'] - init_capital) / init_capital * 100
+                
+                # HS300 Benchmark
+                if not bm_df.empty:
+                    # Align dates
+                    bm_chart = bm_df.loc[res_df.iloc[0]['date'].date():res_df.iloc[-1]['date'].date()]
+                    if not bm_chart.empty:
+                        base_idx = bm_chart.iloc[0]['close']
+                        # Map dates to chart_df
+                        # We can merge
+                        bm_series = bm_chart['close'].reindex(res_df['date'].dt.date).fillna(method='ffill')
+                        chart_df['HS300'] = (bm_series.values - base_idx) / base_idx * 100
+                
+                fig = px.line(chart_df, x='date', y=['Strategy', 'HS300'] if 'HS300' in chart_df.columns else ['Strategy'])
+                fig.update_layout(title="累计收益率 (%)", hovermode="x unified")
+                st.plotly_chart(fig, use_container_width=True)
+                
+            else:
+                st.error("Simulation produced no data.")
+                
+        status_text.empty()
+        progress_bar.empty()
 
 elif page == "BACKTEST":
     swiss_header(T('bt_title'), T('bt_subtitle'))

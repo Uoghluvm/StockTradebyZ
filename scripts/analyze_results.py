@@ -128,14 +128,24 @@ def analyze_strategies(df: pd.DataFrame):
     best_df = pd.DataFrame(best_periods).set_index('策略')
     stats = stats.join(best_df)
 
-    # 综合评分 (示例: 胜率*0.5 + 收益*0.5)
-    # 使用基础5日胜率作为参考
+    # 计算胜率
     win_rates = valid_df.groupby('策略')['收盘买入收益率(%)'].apply(lambda x: (x > 0).sum() / len(x) * 100)
     stats['收盘_胜率%'] = win_rates
     
-    stats['综合得分'] = stats['收盘_胜率%'] * 0.6 + stats['收盘_5日均%'] * 0.4
+    # 计算收益标准差 (用于夏普比率)
+    ret_std = valid_df.groupby('策略')['收盘买入收益率(%)'].std()
+    stats['收益标准差'] = ret_std
     
-    # 排序
+    # 夏普比率评分 (假设无风险利率为0)
+    # 夏普比率 = 平均收益 / 标准差
+    # 为避免除零，当标准差为0时使用极大值
+    stats['夏普比率'] = stats['收盘_5日均%'] / stats['收益标准差'].replace(0, 0.001)
+    
+    # 综合得分 = 夏普比率 × 胜率调整因子 (胜率/100)
+    # 这样高夏普 + 高胜率的策略得分更高
+    stats['综合得分'] = stats['夏普比率'] * (stats['收盘_胜率%'] / 100)
+    
+    # 排序 (按综合得分降序)
     stats = stats.sort_values('综合得分', ascending=False)
     
     # 格式化输出
@@ -145,7 +155,7 @@ def analyze_strategies(df: pd.DataFrame):
     
     print("\n" + "="*20 + " 策略全量回测排行 " + "="*20)
     # 选取关键列打印
-    print_cols = ['总荐股数', '最佳周期', '最佳均收', '收盘_胜率%', '周期详情', '综合得分']
+    print_cols = ['总荐股数', '最佳周期', '最佳均收', '收盘_胜率%', '收益标准差', '夏普比率', '综合得分']
     # 确保列存在
     print_cols = [c for c in print_cols if c in stats.columns]
     print(stats[print_cols])

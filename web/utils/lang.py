@@ -81,11 +81,30 @@ TRANSLATIONS = {
         'set_workers_low': '1 (Safe/Free)',
         'set_workers_high': '6 (Fast/Paid)',
         'err_start_fail': 'Failed to start: {e}',
+        
+        # Simulation
+        'nav_simulation': 'SIMULATION',
+        'sim_title': 'STRATEGY SIMULATOR',
+        'sim_subtitle': 'Real-world Trading Sandbox',
+        'sim_settings': 'Simulation Parameters',
+        'sim_capital': 'Initial Capital (CNY)',
+        'sim_period': 'Holding Period (Days)',
+        'sim_strategy': 'Target Strategy',
+        'sim_run': 'RUN SIMULATION',
+        'sim_result': 'Simulation Results',
+        'sim_final_asset': 'Final Asset',
+        'sim_total_ret': 'Total Return',
+        'sim_max_dd': 'Max Drawdown',
+        'sim_vs_bm': 'vs Benchmark',
+        'sim_no_logs': 'No strategy logs found. Please run selection first.',
+        'score_formula_title': 'Scoring Formula Explained',
+        'score_formula_desc': 'The composite score balances risk and return:',
     },
     'CN': {
         # Sidebar
         'nav_dashboard': '策略看板',
         'nav_laboratory': '选股实验室',
+        'nav_simulation': '模拟交易',
         'nav_backtest': '回测中心',
         'nav_settings': '系统设置',
         'status_active': '令牌已激活',
@@ -104,6 +123,8 @@ TRANSLATIONS = {
         'table_title': '策略排行榜',
         'activity_map': '选股热力图',
         'activity_help': '每日选股数量统计 (颜色越深数量越多)',
+        'score_formula_title': '综合评分计算公式',
+        'score_formula_desc': '综合评分旨在平衡策略的收益能力与风险稳定性。计算逻辑如下：',
         
         # Laboratory
         'lab_title': '选股实验室',
@@ -128,6 +149,21 @@ TRANSLATIONS = {
         'success_select': '选股完成，正在回测...',
         'success_finish': '流程结束。请查看[每日复盘]标签页。',
         'error_failed': '选股失败。',
+
+        # Simulation
+        'sim_title': '模拟交易沙箱',
+        'sim_subtitle': '真实场景资金曲线模拟',
+        'sim_settings': '模拟参数设置',
+        'sim_capital': '初始本金 (元)',
+        'sim_period': '持仓天数',
+        'sim_strategy': '选择策略',
+        'sim_run': '开始模拟',
+        'sim_result': '模拟结果',
+        'sim_final_asset': '期末资产',
+        'sim_total_ret': '累计收益',
+        'sim_max_dd': '最大回撤',
+        'sim_vs_bm': '超额收益 (vs 沪深300)',
+        'sim_no_logs': '暂无选股记录，请先去实验室运行策略。',
 
         # Backtest
         'bt_title': '回测中心',

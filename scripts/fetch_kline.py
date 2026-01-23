@@ -187,6 +187,52 @@ def fetch_one(
         logger.error("%s 三次抓取均失败，已跳过！", code)
 
 # --------------------------- 主入口 --------------------------- #
+# --------------------------- 指数抓取 --------------------------- #
+def fetch_indices(start, end, out_dir):
+    indices = {
+        '000300.SH': '沪深300',
+        '000852.SH': '中证1000'
+    }
+    
+    logger.info("-" * 30)
+    logger.info("开始抓取指数数据: %s", ", ".join(indices.values()))
+    
+    for ts_code, name in indices.items():
+        try:
+            # 指数数据获取 asset='I'
+            df = ts.pro_bar(
+                ts_code=ts_code,
+                asset='I',
+                start_date=start, 
+                end_date=end,
+                freq='D',
+                api=pro
+            )
+            
+            if df is not None and not df.empty:
+                # 统一列名
+                df = df.rename(columns={"trade_date": "date", "vol": "volume"})
+                cols = ["date", "open", "close", "high", "low", "volume"]
+                df = df[cols].copy()
+                df["date"] = pd.to_datetime(df["date"])
+                for c in ["open", "close", "high", "low", "volume"]:
+                    df[c] = pd.to_numeric(df[c], errors="coerce")
+                
+                df = df.sort_values("date").reset_index(drop=True)
+                
+                # 保存为 Parquet (文件名使用纯数字 code，如 000300.parquet)
+                code = ts_code.split('.')[0]
+                save_path = out_dir / f"{code}.parquet"
+                df.to_parquet(save_path, index=False)
+                logger.info(f"✅ 已保存 {name}: {save_path}")
+            else:
+                logger.warning(f"⚠️ {name} 无数据")
+                
+        except Exception as e:
+            logger.error(f"❌ 抓取 {name} 失败: {e}")
+
+# --------------------------- 主入口 --------------------------- #
+def main():
     # ---------- 路径适配 ---------- #
     current_dir = Path(__file__).resolve().parent
     root_dir = current_dir.parent
@@ -210,6 +256,8 @@ def fetch_one(
     # 其它
     parser.add_argument("--out", default=str(default_out), help="输出目录")
     parser.add_argument("--workers", type=int, default=6, help="并发线程数")
+    parser.add_argument("--index", action="store_true", help="仅抓取指数数据 (沪深300, 中证1000)")
+    
     args = parser.parse_args()
 
     # ---------- Tushare Token ---------- #
@@ -217,7 +265,17 @@ def fetch_one(
     os.environ["no_proxy"] = os.environ["NO_PROXY"]
     ts_token = os.environ.get("TUSHARE_TOKEN")
     if not ts_token:
+        # 尝试从 .env 读取
+        if Path(".env").exists():
+            with open(".env") as f:
+                for line in f:
+                    if line.startswith("TUSHARE_TOKEN="):
+                        ts_token = line.strip().split("=")[1]
+                        break
+        
+    if not ts_token:
         raise ValueError("请先设置环境变量 TUSHARE_TOKEN，例如：export TUSHARE_TOKEN=你的token")
+        
     ts.set_token(ts_token)
     global pro
     pro = ts.pro_api()
@@ -229,7 +287,13 @@ def fetch_one(
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # ---------- 从 stocklist.csv 读取股票池 ---------- #
+    # ---------- 分支：抓取指数 ---------- #
+    if args.index:
+        fetch_indices(start, end, out_dir)
+        return
+
+    # ---------- 分支：抓取个股 ---------- #
+    # 从 stocklist.csv 读取股票池
     exclude_boards = set(args.exclude_boards or [])
     codes = load_codes_from_stocklist(args.stocklist, exclude_boards)
 
@@ -242,7 +306,7 @@ def fetch_one(
         len(codes), start, end, ",".join(sorted(exclude_boards)) or "无",
     )
 
-    # ---------- 多线程抓取（全量覆盖） ---------- #
+    # 多线程抓取（全量覆盖）
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = [
             executor.submit(
